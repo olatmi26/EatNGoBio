@@ -131,6 +131,19 @@ export default function DeviceProvisioning({
   const activeDevices = (props.devices || []).filter((d: any) => d.status === "online").length;
   const offlineDevices = (props.devices || []).filter((d: any) => d.status === "offline").length;
 
+  // Format relative time
+  const formatRelativeTime = (timestamp: string) => {
+    if (!timestamp || timestamp === '-') return 'Never';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffSeconds < 60) return 'Just now';
+    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
+    if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
+    return `${Math.floor(diffSeconds / 86400)}d ago`;
+  };
+
   return (
     <div className="space-y-5">
       {/* ADMS Status Banner */}
@@ -144,7 +157,7 @@ export default function DeviceProvisioning({
           <div>
             <p className="text-sm font-semibold" style={{ color: "#16a34a" }}>ADMS Server Active</p>
             <p className="text-xs font-mono" style={{ color: textSecondary }}>
-              Listening on /iclock/cdata · Port {props.settings?.adms_port}
+              Listening on /iclock/cdata · Port {props.settings?.adms_port || '443 (HTTPS)'}
             </p>
           </div>
         </div>
@@ -206,88 +219,137 @@ export default function DeviceProvisioning({
         ) : (
           <div className="divide-y" style={{ borderColor: border }}>
             {pending.map(dev => (
-              <div key={dev.id} className="p-5">
-                <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                  <div className="flex items-center gap-3 flex-1">
-                    <div className="relative flex-shrink-0">
-                      <div className="w-12 h-12 rounded-xl flex items-center justify-center" 
-                           style={{ background: dev.status === "rejected" ? "#fee2e2" : "#fef9c3" }}>
-                        <i className="ri-device-line text-xl" 
-                           style={{ color: dev.status === "rejected" ? "#dc2626" : "#ca8a04" }}></i>
+              <div key={dev.id} className="p-5 hover:bg-opacity-50 transition-colors">
+                <div className="flex flex-col gap-4">
+                  {/* Top row: Device name and status */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex-shrink-0">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center" 
+                             style={{ background: dev.status === "rejected" ? "#fee2e2" : "#fef9c3" }}>
+                          <i className="ri-device-line text-xl" 
+                             style={{ color: dev.status === "rejected" ? "#dc2626" : "#ca8a04" }}></i>
+                        </div>
+                        {dev.status === "pending" && (
+                          <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" 
+                                style={{ background: "#fef9c3", border: "2px solid #ca8a04" }}>
+                            <span className="w-1.5 h-1.5 rounded-full animate-pulse" 
+                                  style={{ background: "#ca8a04" }}></span>
+                          </span>
+                        )}
                       </div>
-                      {dev.status === "pending" && (
-                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" 
-                              style={{ background: "#fef9c3", border: "2px solid #ca8a04" }}>
-                          <span className="w-1.5 h-1.5 rounded-full animate-pulse" 
-                                style={{ background: "#ca8a04" }}></span>
-                        </span>
-                      )}
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-base font-semibold" style={{ color: textPrimary }}>
+                            {dev.suggestedName || dev.sn}
+                          </h4>
+                          <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{
+                            background: dev.status === "pending" ? "#fef9c3" : 
+                                       dev.status === "provisioning" ? "#dcfce7" : "#fee2e2",
+                            color: dev.status === "pending" ? "#ca8a04" : 
+                                   dev.status === "provisioning" ? "#16a34a" : "#dc2626",
+                          }}>
+                            {dev.status === "pending" ? "Pending Confirmation" : 
+                             dev.status === "provisioning" ? "Provisioning…" : "Rejected"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <p className="text-sm font-semibold" style={{ color: textPrimary }}>
-                          {dev.suggestedName || dev.sn}
-                        </p>
-                        <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{
-                          background: dev.status === "pending" ? "#fef9c3" : 
-                                     dev.status === "provisioning" ? "#dcfce7" : "#fee2e2",
-                          color: dev.status === "pending" ? "#ca8a04" : 
-                                 dev.status === "provisioning" ? "#16a34a" : "#dc2626",
-                        }}>
-                          {dev.status === "pending" ? "Pending Confirmation" : 
-                           dev.status === "provisioning" ? "Provisioning…" : "Rejected"}
-                        </span>
+                    
+                    {/* Action buttons */}
+                    {dev.status === "pending" && (
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {provisioning === dev.id ? (
+                          <div className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" 
+                               style={{ background: "#dcfce7", color: "#16a34a" }}>
+                            <i className="ri-refresh-line animate-spin text-sm"></i>
+                            Provisioning…
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => openConfirm(dev)}
+                              disabled={isLoading}
+                              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer whitespace-nowrap text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                              style={{ background: "#16a34a" }}
+                            >
+                              <i className="ri-checkbox-circle-line"></i> Confirm & Activate
+                            </button>
+                            <button
+                              onClick={() => handleReject(dev.id)}
+                              disabled={isLoading}
+                              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap hover:opacity-80 transition-opacity disabled:opacity-50"
+                              style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
+                            >
+                              <i className="ri-close-line"></i> Reject
+                            </button>
+                          </>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-3 text-xs" style={{ color: textSecondary }}>
-                        <span><i className="ri-barcode-line mr-1"></i>{dev.sn}</span>
-                        <span><i className="ri-global-line mr-1"></i>{dev.ip}</span>
-                        <span><i className="ri-cpu-line mr-1"></i>{dev.model} · {dev.firmware}</span>
-                        <span><i className="ri-time-line mr-1"></i>First seen: {dev.firstSeen}</span>
-                        <span><i className="ri-heart-pulse-line mr-1"></i>Last heartbeat: {dev.lastHeartbeat}</span>
-                        <span><i className="ri-repeat-line mr-1"></i>{dev.requestCount} requests</span>
+                    )}
+                    
+                    {dev.status === "rejected" && (
+                      <button
+                        onClick={() => handleReconsider(dev.id)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap flex-shrink-0 hover:opacity-80 transition-opacity"
+                        style={{ background: isDark ? "#374151" : "#f3f4f6", color: textSecondary }}
+                      >
+                        <i className="ri-refresh-line"></i> Reconsider
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Device details grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ml-16">
+                    <div className="flex items-center gap-2">
+                      <i className="ri-barcode-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>Serial Number</p>
+                        <p className="text-sm font-mono font-medium" style={{ color: textPrimary }}>{dev.sn}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-global-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>IP Address</p>
+                        <p className="text-sm font-mono font-medium" style={{ color: textPrimary }}>{dev.ip}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-cpu-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>Model & Firmware</p>
+                        <p className="text-sm font-medium" style={{ color: textPrimary }}>
+                          {dev.model} {dev.firmware !== 'Unknown' && `· ${dev.firmware}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-time-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>Last Heartbeat</p>
+                        <p className="text-sm font-medium" style={{ color: textPrimary }}>
+                          {formatRelativeTime(dev.lastHeartbeat)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-calendar-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>First Seen</p>
+                        <p className="text-sm font-medium" style={{ color: textPrimary }}>
+                          {dev.firstSeen !== '-' ? new Date(dev.firstSeen).toLocaleString() : '-'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-repeat-line text-sm" style={{ color: textSecondary }}></i>
+                      <div>
+                        <p className="text-xs" style={{ color: textSecondary }}>Requests</p>
+                        <p className="text-sm font-medium" style={{ color: textPrimary }}>{dev.requestCount}</p>
                       </div>
                     </div>
                   </div>
-
-                  {dev.status === "pending" && (
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {provisioning === dev.id ? (
-                        <div className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm" 
-                             style={{ background: "#dcfce7", color: "#16a34a" }}>
-                          <i className="ri-refresh-line animate-spin text-sm"></i>
-                          Provisioning…
-                        </div>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => openConfirm(dev)}
-                            disabled={isLoading}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer whitespace-nowrap text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                            style={{ background: "#16a34a" }}
-                          >
-                            <i className="ri-checkbox-circle-line"></i> Confirm & Activate
-                          </button>
-                          <button
-                            onClick={() => handleReject(dev.id)}
-                            disabled={isLoading}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap hover:opacity-80 transition-opacity disabled:opacity-50"
-                            style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
-                          >
-                            <i className="ri-close-line"></i> Reject
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {dev.status === "rejected" && (
-                    <button
-                      onClick={() => handleReconsider(dev.id)}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer whitespace-nowrap flex-shrink-0 hover:opacity-80 transition-opacity"
-                      style={{ background: isDark ? "#374151" : "#f3f4f6", color: textSecondary }}
-                    >
-                      <i className="ri-refresh-line"></i> Reconsider
-                    </button>
-                  )}
                 </div>
               </div>
             ))}
@@ -320,12 +382,22 @@ export default function DeviceProvisioning({
               {(() => {
                 const dev = pending.find(d => d.id === confirmId);
                 return dev ? (
-                  <div className="p-3 rounded-xl" 
+                  <div className="p-3 rounded-xl space-y-2" 
                        style={{ background: isDark ? "#374151" : "#f9fafb", border: `1px solid ${border}` }}>
-                    <div className="flex flex-wrap gap-3 text-xs" style={{ color: textSecondary }}>
-                      <span><strong style={{ color: textPrimary }}>SN:</strong> {dev.sn}</span>
-                      <span><strong style={{ color: textPrimary }}>IP:</strong> {dev.ip}</span>
-                      <span><strong style={{ color: textPrimary }}>Model:</strong> {dev.model}</span>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-barcode-line text-sm" style={{ color: textSecondary }}></i>
+                      <span className="text-xs" style={{ color: textSecondary }}>Serial Number:</span>
+                      <span className="text-sm font-mono font-medium" style={{ color: textPrimary }}>{dev.sn}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-global-line text-sm" style={{ color: textSecondary }}></i>
+                      <span className="text-xs" style={{ color: textSecondary }}>IP Address:</span>
+                      <span className="text-sm font-mono font-medium" style={{ color: textPrimary }}>{dev.ip}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <i className="ri-cpu-line text-sm" style={{ color: textSecondary }}></i>
+                      <span className="text-xs" style={{ color: textSecondary }}>Model:</span>
+                      <span className="text-sm font-medium" style={{ color: textPrimary }}>{dev.model}</span>
                     </div>
                   </div>
                 ) : null;
@@ -335,7 +407,7 @@ export default function DeviceProvisioning({
                 <input 
                   value={confirmForm.name} 
                   onChange={e => setConfirmForm(f => ({ ...f, name: e.target.value }))} 
-                  placeholder="e.g. SURULERE BIOMETRICS" 
+                  placeholder="e.g. Main Entrance Biometrics" 
                   className={inputClass} 
                   style={inputStyle} 
                 />
