@@ -10,8 +10,8 @@ use Inertia\Response;
 class AnalyticsController extends Controller
 {
     public function __construct(
-        private AttendanceService   $attendance,
-        private DeviceService       $devices,
+        private AttendanceService $attendance,
+        private DeviceService $devices,
         private NotificationService $notifs,
     ) {}
 
@@ -24,5 +24,5 @@ class AnalyticsController extends Controller
             'weeklyTrend'   => $this->attendance->weeklyTrend(),
             'unreadCount'   => $this->notifs->unreadCount(auth()->id()),
         ]);
-    }
+    }    
 }
