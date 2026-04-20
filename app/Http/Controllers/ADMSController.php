@@ -20,40 +20,58 @@ class ADMSController extends Controller
     public function cdata(Request $request)
     {
         $sn = $request->query('SN') ?? $request->input('SN');
-        
+
         // Log all incoming requests for debugging
         Log::info('ZK ADMS cdata request', [
             'method' => $request->method(),
-            'sn' => $sn,
-            'ip' => $request->ip(),
-            'query' => $request->query->all(),
-            'input' => $request->input(),
+            'sn'     => $sn,
+            'ip'     => $request->ip(),
+            'query'  => $request->query->all(),
+            'input'  => $request->input(),
         ]);
 
-        if (!$sn) {
+        if (! $sn) {
             return response('ERROR: Missing SN', 400)->header('Content-Type', 'text/plain');
         }
 
-        $ip = $request->ip();
+        $ip       = $request->ip();
         $firmware = $request->query('Ver') ?? $request->input('Ver') ?? 'Unknown';
-        $model = $request->query('Model') ?? $request->input('Model') ?? 'ZKTeco';
-        $options = $request->query('options') ?? $request->input('options');
+        $model    = $request->query('Model') ?? $request->input('Model') ?? 'ZKTeco';
+        $options  = $request->query('options') ?? $request->input('options');
 
         // Check if device is already registered
         $device = Device::where('serial_number', $sn)->first();
+        if ($device) {
+            // Device exists in database
+            $device->update([
+                'last_seen'  => now(),
+                'ip_address' => $ip,
+                'firmware'   => $firmware ?? $device->firmware,
+                'user_count' => (int) ($request->query('Cnt') ?? $device->user_count),
+                'fp_count'   => (int) ($request->query('FPCnt') ?? $device->fp_count),
+                'face_count' => (int) ($request->query('FaceCnt') ?? $device->face_count),
+                'status'     => 'online', // Automatically mark as online
+            ]);
+        }
 
-        if (!$device) {
+        // If device was imported but not approved, you can auto-approve on first connection
+        if (! $device->approved) {
+            $device->update(['approved' => true]);
+            Log::info("ZK ADMS: Auto-approved imported device {$sn} on first connection");
+        }
+
+        if (! $device) {
             // Unknown device - save to pending
-            $pending = PendingDevice::firstOrNew(['serial_number' => $sn]);
-            $pending->ip_address = $ip;
-            $pending->firmware = $firmware;
-            $pending->model = $model;
+            $pending                 = PendingDevice::firstOrNew(['serial_number' => $sn]);
+            $pending->ip_address     = $ip;
+            $pending->firmware       = $firmware;
+            $pending->model          = $model;
             $pending->last_heartbeat = now();
-            $pending->request_count = ($pending->request_count ?? 0) + 1;
-            
-            if (!$pending->exists) {
-                $pending->status = 'pending';
-                $pending->first_seen = now();
+            $pending->request_count  = ($pending->request_count ?? 0) + 1;
+
+            if (! $pending->exists) {
+                $pending->status         = 'pending';
+                $pending->first_seen     = now();
                 $pending->suggested_name = $model . ' - ' . substr($sn, -6);
             }
             $pending->save();
@@ -90,13 +108,13 @@ class ADMSController extends Controller
 
         // Device is registered - update last seen
         $device->update([
-            'last_seen' => now(),
+            'last_seen'  => now(),
             'ip_address' => $ip,
-            'firmware' => $firmware,
-            'user_count' => (int)($request->query('Cnt') ?? $request->input('Cnt', $device->user_count)),
-            'fp_count' => (int)($request->query('FPCnt') ?? $request->input('FPCnt', $device->fp_count)),
-            'face_count' => (int)($request->query('FaceCnt') ?? $request->input('FaceCnt', $device->face_count)),
-            'status' => 'online',
+            'firmware'   => $firmware,
+            'user_count' => (int) ($request->query('Cnt') ?? $request->input('Cnt', $device->user_count)),
+            'fp_count'   => (int) ($request->query('FPCnt') ?? $request->input('FPCnt', $device->fp_count)),
+            'face_count' => (int) ($request->query('FaceCnt') ?? $request->input('FaceCnt', $device->face_count)),
+            'status'     => 'online',
         ]);
 
         // GET request = Handshake
@@ -132,7 +150,7 @@ class ADMSController extends Controller
         }
 
         // POST request = Data push
-        $table = $request->query('table') ?? $request->input('table');
+        $table   = $request->query('table') ?? $request->input('table');
         $rawBody = $request->getContent();
 
         Log::debug("ZK ADMS Push: SN={$sn} table={$table}", ['preview' => substr($rawBody, 0, 300)]);
@@ -158,10 +176,10 @@ class ADMSController extends Controller
     public function getRequest(Request $request)
     {
         $sn = $request->query('SN');
-        
+
         Log::info('ZK ADMS getrequest', ['sn' => $sn, 'ip' => $request->ip()]);
-        
-        if (!$sn) {
+
+        if (! $sn) {
             return response('ERROR', 400)->header('Content-Type', 'text/plain');
         }
 
@@ -195,18 +213,18 @@ class ADMSController extends Controller
      */
     public function deviceCmd(Request $request)
     {
-        $sn = $request->query('SN');
+        $sn   = $request->query('SN');
         $body = $request->getContent();
-        
+
         Log::info('ZK ADMS devicecmd', ['sn' => $sn, 'body' => $body]);
-        
+
         parse_str($body, $params);
 
         if (isset($params['ID'])) {
             DeviceCommand::where('id', $params['ID'])->update([
-                'status' => (($params['Return'] ?? '0') === '0') ? 'success' : 'failed',
-                'return_code' => $params['Return'] ?? null,
-                'response' => $body,
+                'status'       => (($params['Return'] ?? '0') === '0') ? 'success' : 'failed',
+                'return_code'  => $params['Return'] ?? null,
+                'response'     => $body,
                 'completed_at' => now(),
             ]);
         }
@@ -219,9 +237,9 @@ class ADMSController extends Controller
      */
     public function upload(Request $request)
     {
-        $sn = $request->query('SN');
+        $sn    = $request->query('SN');
         $table = $request->query('table');
-        $body = $request->getContent();
+        $body  = $request->getContent();
 
         Log::info("ZK ADMS Upload: SN={$sn} table={$table} size=" . strlen($body));
 
@@ -248,22 +266,26 @@ class ADMSController extends Controller
     // Private Helpers
     // =========================================================================
 
-    private function processAttendanceLogs(Device $device, string $body): int
+    public function processAttendanceLogs(Device $device, string $body): int
     {
         $lines = array_filter(explode("\n", trim($body)));
         $saved = 0;
 
         foreach ($lines as $line) {
             $line = trim($line);
-            if (!$line) continue;
-            
-            $parts = preg_split('/[\t ]+/', $line);
-            if (count($parts) < 3) continue;
+            if (! $line) {
+                continue;
+            }
 
-            $pin = $parts[0];
+            $parts = preg_split('/[\t ]+/', $line);
+            if (count($parts) < 3) {
+                continue;
+            }
+
+            $pin      = $parts[0];
             $dateTime = trim(($parts[1] ?? '') . ' ' . ($parts[2] ?? ''));
-            $status = (int)($parts[3] ?? 0);
-            $verify = (int)($parts[4] ?? 1);
+            $status   = (int) ($parts[3] ?? 0);
+            $verify   = (int) ($parts[4] ?? 1);
             $workCode = $parts[5] ?? '0';
 
             try {
@@ -279,15 +301,15 @@ class ADMSController extends Controller
                 ->where('punch_time', $punchTime)
                 ->exists();
 
-            if (!$exists) {
+            if (! $exists) {
                 AttendanceLog::create([
-                    'device_id' => $device->id,
-                    'device_sn' => $device->serial_number,
-                    'employee_pin' => $pin,
-                    'punch_time' => $punchTime,
-                    'punch_type' => $status,
-                    'verify_type' => $verify,
-                    'work_code' => $workCode,
+                    'device_id'     => $device->id,
+                    'device_sn'     => $device->serial_number,
+                    'employee_pin'  => $pin,
+                    'punch_time'    => $punchTime,
+                    'punch_type'    => $status,
+                    'verify_type'   => $verify,
+                    'work_code'     => $workCode,
                     'raw_line_data' => $line,
                 ]);
                 $saved++;
@@ -298,29 +320,33 @@ class ADMSController extends Controller
         return $saved;
     }
 
-    private function processUserInfo(string $sn, string $body): int
+    public function processUserInfo(string $sn, string $body): int
     {
         $lines = array_filter(explode("\n", trim($body)));
         $count = 0;
 
         foreach ($lines as $line) {
             $line = trim($line);
-            if (!$line) continue;
-            
-            $parts = explode("\t", $line);
-            if (count($parts) < 2) continue;
+            if (! $line) {
+                continue;
+            }
 
-            $pin = $parts[0];
+            $parts = explode("\t", $line);
+            if (count($parts) < 2) {
+                continue;
+            }
+
+            $pin  = $parts[0];
             $name = $parts[1] ?? '';
 
             Employee::firstOrCreate(
                 ['employee_id' => $pin],
                 [
-                    'first_name' => $name,
-                    'card' => $parts[3] ?? null,
+                    'first_name'       => $name,
+                    'card'             => $parts[3] ?? null,
                     'source_device_sn' => $sn,
-                    'active' => true,
-                    'employee_status' => 'active',
+                    'active'           => true,
+                    'employee_status'  => 'active',
                 ]
             );
             $count++;
@@ -329,21 +355,21 @@ class ADMSController extends Controller
         return $count;
     }
 
-    private function processOperationLog(Device $device, string $body): void
+    public function processOperationLog(Device $device, string $body): void
     {
         Log::info("ZK ADMS OPERLOG {$device->serial_number}: " . substr($body, 0, 200));
     }
 
-    private function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
+    public function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
     {
         DeviceSyncLog::create([
             'device_sn' => $device->serial_number,
             'device_id' => $device->id,
-            'type' => $type,
-            'records' => $records,
-            'status' => $status,
-            'duration' => $duration,
-            'message' => $message,
+            'type'      => $type,
+            'records'   => $records,
+            'status'    => $status,
+            'duration'  => $duration,
+            'message'   => $message,
             'synced_at' => now(),
         ]);
     }

@@ -137,4 +137,17 @@ class DeviceController extends Controller
             'recentActivity' => $recentActivity,
         ]);
     }
+
+    // In DeviceController
+    public function batchApprove(): RedirectResponse
+    {
+        $updated = Device::where('approved', false)
+            ->orWhere('status', 'unregistered')
+            ->update([
+                'approved' => true,
+                'status'   => 'offline',
+            ]);
+
+        return back()->with('success', $updated . ' devices approved.');
+    }
 }
