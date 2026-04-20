@@ -1,0 +1,158 @@
+export type NotifCategory = 'absence' | 'device' | 'late' | 'system' | 'biometric';
+export type NotifSeverity = 'critical' | 'warning' | 'info' | 'success';
+
+export interface Notification {
+  id: string;
+  category: NotifCategory;
+  severity: NotifSeverity;
+  title: string;
+  message: string;
+  time: string;
+  read: boolean;
+  actionLabel?: string;
+  actionPath?: string;
+  meta?: string;
+}
+
+export const mockNotifications: Notification[] = [
+  {
+    id: 'n1',
+    category: 'absence',
+    severity: 'critical',
+    title: '3+ Consecutive Absences',
+    message: 'Musa Abdullahi (EMP11001) has been absent for 4 consecutive days. Immediate follow-up required.',
+    time: '2 min ago',
+    read: false,
+    actionLabel: 'View Employee',
+    actionPath: '/employees/e20',
+    meta: 'Logistics · 4 days',
+  },
+  {
+    id: 'n2',
+    category: 'device',
+    severity: 'critical',
+    title: 'Device Offline',
+    message: 'ZK-OGUDU-001 at OGUDU location has been offline for 18 hours. Attendance may be affected.',
+    time: '18 hrs ago',
+    read: false,
+    actionLabel: 'View Device',
+    actionPath: '/devices',
+    meta: 'OGUDU · 18h offline',
+  },
+  {
+    id: 'n3',
+    category: 'late',
+    severity: 'warning',
+    title: 'Late Arrival Spike',
+    message: 'Operations department has 8 late arrivals today — 3× above the weekly average of 2.5.',
+    time: '1 hr ago',
+    read: false,
+    actionLabel: 'View Report',
+    actionPath: '/reports',
+    meta: 'Operations · 8 late today',
+  },
+  {
+    id: 'n4',
+    category: 'absence',
+    severity: 'warning',
+    title: '3+ Consecutive Absences',
+    message: 'Chioma Okafor (EMP10755) has been absent for 3 consecutive days. Currently on probation.',
+    time: '3 hrs ago',
+    read: false,
+    actionLabel: 'View Employee',
+    actionPath: '/employees/e15',
+    meta: 'Sales · 3 days · Probation',
+  },
+  {
+    id: 'n5',
+    category: 'device',
+    severity: 'warning',
+    title: 'Device Offline',
+    message: 'ZK-AGIDINGBI-001 at AGIDINGBI has been offline since yesterday. Last sync: 16:45.',
+    time: '14 hrs ago',
+    read: false,
+    actionLabel: 'View Device',
+    actionPath: '/devices',
+    meta: 'AGIDINGBI · 14h offline',
+  },
+  {
+    id: 'n6',
+    category: 'late',
+    severity: 'warning',
+    title: 'Late Arrival Spike',
+    message: 'Logistics department: 5 employees arrived late this morning, averaging 28 minutes late.',
+    time: '4 hrs ago',
+    read: true,
+    actionLabel: 'View Report',
+    actionPath: '/reports',
+    meta: 'Logistics · 5 late · avg 28min',
+  },
+  {
+    id: 'n7',
+    category: 'system',
+    severity: 'info',
+    title: 'Sync Completed',
+    message: '203 attendance records successfully synced from 8 devices. All records are up to date.',
+    time: '5 hrs ago',
+    read: true,
+    meta: '203 records · 8 devices',
+  },
+  {
+    id: 'n8',
+    category: 'biometric',
+    severity: 'warning',
+    title: 'Biometric Enrollment Pending',
+    message: '12 employees have not enrolled their fingerprints. Biometric attendance may fail for these employees.',
+    time: '6 hrs ago',
+    read: true,
+    actionLabel: 'View Employees',
+    actionPath: '/employees',
+    meta: '12 employees pending',
+  },
+  {
+    id: 'n9',
+    category: 'absence',
+    severity: 'info',
+    title: 'High Absenteeism — Logistics',
+    message: 'Logistics department absenteeism rate reached 16.7% this week, above the 10% threshold.',
+    time: '1 day ago',
+    read: true,
+    actionLabel: 'View Analytics',
+    actionPath: '/analytics',
+    meta: 'Logistics · 16.7% rate',
+  },
+  {
+    id: 'n10',
+    category: 'system',
+    severity: 'success',
+    title: 'New Device Registered',
+    message: 'ZK-LEKKI-001 has been successfully registered and is now online at LEKKI location.',
+    time: '1 day ago',
+    read: true,
+    meta: 'LEKKI · ZK-LEKKI-001',
+  },
+  {
+    id: 'n11',
+    category: 'device',
+    severity: 'info',
+    title: 'Firmware Update Available',
+    message: '3 devices are running outdated firmware (Ver 6.50). Update to Ver 6.60 recommended.',
+    time: '2 days ago',
+    read: true,
+    actionLabel: 'View Devices',
+    actionPath: '/devices',
+    meta: '3 devices · Ver 6.50 → 6.60',
+  },
+  {
+    id: 'n12',
+    category: 'late',
+    severity: 'info',
+    title: 'Weekly Late Summary',
+    message: 'This week: 47 late arrivals across all departments. Top offender: Operations (18 lates).',
+    time: '2 days ago',
+    read: true,
+    actionLabel: 'View Report',
+    actionPath: '/reports',
+    meta: '47 total · Operations worst',
+  },
+];

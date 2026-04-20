@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+@theme {
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+
+/* Base body font */
+
+body {
+    font-family: var(--font-sans);
+}
