@@ -144,7 +144,7 @@ export default function DeviceProvisioning({
           <div>
             <p className="text-sm font-semibold" style={{ color: "#16a34a" }}>ADMS Server Active</p>
             <p className="text-xs font-mono" style={{ color: textSecondary }}>
-              Listening on /iclock/cdata · Port {props.settings?.adms_port || '8089'}
+              Listening on /iclock/cdata · Port {props.settings?.adms_port}
             </p>
           </div>
         </div>

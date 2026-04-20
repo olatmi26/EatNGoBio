@@ -507,7 +507,7 @@ export default function App() {
             <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 700 }}>RUNNING</span>
           </div>
           <div style={{ fontSize: 10, color: "#475569", marginTop: 3, fontFamily: "monospace" }}>
-            :8089/iclock/cdata
+            /iclock/cdata
           </div>
         </div>
 
@@ -560,7 +560,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 12, color: "#6b7280", background: "#f3f4f6", padding: "6px 12px", borderRadius: 8 }}>
-              🔗 biometrics.eatngo-africa.com:8089
+              🔗 https://engobio.coldstonecreamery.ng
             </div>
             <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14 }}>
               T

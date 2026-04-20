@@ -39,8 +39,8 @@ export default function SettingsPage() {
   });
 
   const [admsSettings, setAdmsSettings] = useState({
-    serverUrl: "http://biometrics.eatngo-africa.com",
-    port: "8089",
+    serverUrl: "https://engobio.coldstonecreamery.ng",
+    port: "",
     heartbeatInterval: 10,
     syncMode: "Real-Time",
     autoProvision: true,

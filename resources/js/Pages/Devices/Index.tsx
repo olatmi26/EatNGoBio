@@ -353,7 +353,7 @@ export default function DevicesPage() {
         <div className="mt-4 p-3 rounded-xl" style={{ background: isDark ? '#374151' : '#f0fdf4', border: `1px solid ${isDark ? '#4b5563' : '#bbf7d0'}` }}>
           <p className="text-xs font-medium" style={{ color: '#16a34a' }}>
             <i className="ri-information-line mr-1"></i>
-            Configure the device to point to: <span className="font-mono">http://biometrics.eatngo-africa.com:8089</span>
+            Configure the device to point to: <span className="font-mono">https://engobio.coldstonecreamery.ng</span>
           </p>
         </div>
       </Modal>
