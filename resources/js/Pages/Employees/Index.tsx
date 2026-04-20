@@ -26,30 +26,40 @@ type TransferType = "department" | "position" | "area" | "probation" | "resignat
 type BiometricActionType = "resync" | "reupload" | "delete-template" | "export-usb";
 type RowActionKey = string | null;
 
-// Define the Employee type locally for this file to avoid reference errors
-interface Employee extends EmployeeItem {
-  // You may append or override props if needed
-}
+interface Employee extends EmployeeItem {}
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-export default function EmployeesPage() {
+export default function EmployeesPage() {  
   const { props } = usePage<Props>();
   const { isDark } = useTheme();
-  const [employees, setEmployees] = useState<EmployeeItem[]>(props.employees?.data ?? []);
   const { showToast } = useToast();
+
+  // ── Fix: Properly access pagination data ──────────────────────────────────────────
+  const employeesData = props.employees || { data: [], meta: null, links: null };
+  const paginated = employeesData.data ?? [];
+  const meta = employeesData.meta;
+  const links = employeesData.links;
+
+  const { departments, positions, areas } = usePage<Props>().props;
   
-  const [search, setSearch] = useState("");
+  const totalRecords = meta?.total ?? 0;
+  const totalPages = meta?.last_page ?? 1;
+  const currentPage = meta?.current_page ?? 1;
+  const from = meta?.from ?? 0;
+  const to = meta?.to ?? 0;
+  const perPage = meta?.per_page ?? 15;
+
+  // UI/State hooks
+  const [search, setSearch] = useState(props.filters?.search ?? "");
+  const [statusFilter, setStatusFilter] = useState(props.filters?.status ?? "all");
+  const [pageSize, setPageSize] = useState(perPage);
   const [showModal, setShowModal] = useState(false);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [openDropdown, setOpenDropdown] = useState<DropdownKey>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [rowAction, setRowAction] = useState<RowActionKey>(null);
-  const meta = props.employees.meta;
-  const [page, setPage] = useState(meta?.current_page ?? 1);
-  const [pageSize, setPageSize] = useState(meta?.per_page ?? 25);
   const rowActionRef = useRef<HTMLDivElement | null>(null);
 
   const [transferType, setTransferType] = useState<TransferType | null>(null);
@@ -62,49 +72,47 @@ export default function EmployeesPage() {
   const textSecondary = isDark ? "#9ca3af" : "#6b7280";
   const dropdownBg = isDark ? "#1f2937" : "#ffffff";
 
-  // Sync local state when Inertia provides fresh data (after server-side page change)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const propsData = props.employees?.data ?? [];
-  if (propsData !== employees && propsData.length !== employees.length) {
-    // This is a simple synchronous check - use layout effect pattern below
-  }
+  const canPaginate = totalPages > 1;
 
-  // Keep employees in sync with Inertia props on navigation
-  const prevPropsRef = useRef(propsData);
+  // ── Debounced server fetch ─────────────────────────────────────────────────
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchPage = (overrides: { page?: number; per_page?: number; search?: string; status?: string } = {}) => {
+    const params: Record<string, string | number | undefined> = {
+      page: overrides.page ?? currentPage,
+      per_page: overrides.per_page ?? pageSize,
+      search: overrides.search !== undefined ? overrides.search : (search || undefined),
+      status: overrides.status !== undefined ? overrides.status : (statusFilter !== "all" ? statusFilter : undefined),
+    };
+    Object.keys(params).forEach(k => params[k] === undefined && delete params[k]);
+    router.visit("/employees", {
+      method: "get",
+      data: params as Record<string, string | number>,
+      preserveState: true,
+      preserveScroll: true,
+      replace: true,
+      onSuccess: () => setSelected([]),
+    });
+  };
+
+  // Sync pageSize when meta changes
   useEffect(() => {
-    if (prevPropsRef.current !== propsData) {
-      setEmployees(propsData);
-      prevPropsRef.current = propsData;
-      if (meta?.current_page) setPage(meta.current_page);
+    if (meta?.per_page && meta.per_page !== pageSize) {
+      setPageSize(meta.per_page);
     }
-  }, [propsData, meta]);
+  }, [meta?.per_page]);
 
-  const filtered = employees.filter(e => {
-    const matchSearch = `${e.firstName} ${e.lastName} ${e.employeeId} ${e.department}`.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === "all" || e.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
-
-  // Server-driven pagination: total comes from meta, not filtered local array
-  const totalRecords = meta?.total ?? filtered.length;
-  const totalPages = meta?.last_page ?? Math.ceil(filtered.length / pageSize);
-  // When using server-side pagination, filtered is already the current page's data
-  // Only apply local slice if search/status filter is active (narrows within current page)
-  const hasLocalFilter = search.trim() !== '' || statusFilter !== 'all';
-  const paginated = hasLocalFilter
-    ? filtered.slice(0, pageSize)  // local filter on current server page
-    : filtered;                     // full server page data
 
   const openAdd = () => { setEditEmployee(null); setShowModal(true); };
   const openEdit = (e: Employee) => { setEditEmployee(e); setShowModal(true); };
 
+  // --- CRUD / local update logic ---
   const handleSave = (data: Partial<EmployeeItem>) => {
     if (editEmployee) {
       router.put(route('employees.update', editEmployee.id), data, { onSuccess: () => setShowModal(false) });
     } else {
       router.post(route('employees.store'), data, { onSuccess: () => setShowModal(false) });
     }
-    // Keep local state update for immediate feedback:
     if (editEmployee) {
       setEmployees(prev => prev.map(e => e.id === editEmployee.id ? { ...e, ...data } : e));
       showToast("success", "Employee Updated", `${data.firstName} ${data.lastName} updated successfully`);
@@ -142,8 +150,14 @@ export default function EmployeesPage() {
     setRowAction(null);
   };
 
-  const handleTransferConfirm = (type: TransferType, value: string, _reason: string, _effectiveDate: string) => {
-    const targetIds = selected.length > 0 ? selected : filtered.map(e => e.id);
+  const handleTransferConfirm = (
+    type: TransferType,
+    value: string,
+    _reason: string,
+    _effectiveDate: string
+  ) => {
+    // Remove 'filtered' usage, fallback to selected
+    const targetIds = selected.length > 0 ? selected : [];
     if (type === "department") {
       setEmployees(prev => prev.map(e => targetIds.includes(e.id) ? { ...e, department: value } : e));
       showToast("success", "Department Transfer", `${targetIds.length} employee(s) transferred to ${value}`);
@@ -192,11 +206,8 @@ export default function EmployeesPage() {
 
   const getInitials = (e: Employee) => `${e.firstName?.[0] || ""}${e.lastName?.[0] || ""}`.toUpperCase();
   const avatarColors = ["#16a34a", "#0891b2", "#7c3aed", "#d97706", "#dc2626", "#db2777"];
-  // Fix for id.charCodeAt is not a function: use string version of id always
   const getAvatarColor = (id: string | number) => {
-    // Convert to string if it's not, pick a charCode that is stable for string or number
     const sid = String(id);
-    // Protect against empty string
     const code = sid.length > 0 ? sid.charCodeAt(0) : 0;
     return avatarColors[code % avatarColors.length];
   };
@@ -281,19 +292,20 @@ export default function EmployeesPage() {
   );
 
   const handlePageChange = (newPage: number) => {
-    setPage(Math.max(1, Math.min(newPage, totalPages)));
-    setSelected([]);
+    const clamped = Math.max(1, Math.min(newPage, totalPages));
+    fetchPage({ page: clamped });
   };
 
   const getPageNumbers = () => {
     const pages: (number | "...")[] = [];
+    const p = currentPage;
     if (totalPages <= 7) {
       for (let i = 1; i <= totalPages; i++) pages.push(i);
     } else {
       pages.push(1);
-      if (page > 3) pages.push("...");
-      for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
-      if (page < totalPages - 2) pages.push("...");
+      if (p > 3) pages.push("...");
+      for (let i = Math.max(2, p - 1); i <= Math.min(totalPages - 1, p + 1); i++) pages.push(i);
+      if (p < totalPages - 2) pages.push("...");
       pages.push(totalPages);
     }
     return pages;
@@ -302,11 +314,13 @@ export default function EmployeesPage() {
   return (
     <AppLayout title="">
       <div className="p-4 md:p-6" style={{ background: bg, minHeight: "100vh" }} onClick={() => { setOpenDropdown(null); setRowAction(null); }}>
-        {/* Header */}
+        {/* Header - Fix: Show actual count instead of 0 */}
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-xl md:text-2xl font-bold" style={{ color: textPrimary }}>Employees</h1>
-            <p className="text-sm mt-0.5" style={{ color: textSecondary }}>{employees.length} employees · Manage personnel records</p>
+            <p className="text-sm mt-0.5" style={{ color: textSecondary }}>
+              {totalRecords} {totalRecords === 1 ? 'employee' : 'employees'} · Manage personnel records
+            </p>
           </div>
         </div>
 
@@ -373,9 +387,9 @@ export default function EmployeesPage() {
           {/* Status filter - scrollable on mobile */}
           <div className="flex items-center gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: isDark ? "#374151" : "#f3f4f6" }}>
             {["all", "active", "probation", "resigned"].map(s => (
-              <button key={s} onClick={() => { setStatusFilter(s); setPage(1); }} className="px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer whitespace-nowrap capitalize transition-colors"
+              <button key={s} onClick={() => { setStatusFilter(s); fetchPage({ page: 1, status: s }); }} className="px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer whitespace-nowrap capitalize transition-colors"
                 style={{ background: statusFilter === s ? (isDark ? "#1f2937" : "#ffffff") : "transparent", color: statusFilter === s ? textPrimary : textSecondary }}>
-                {s === "all" ? `All (${employees.length})` : `${s.charAt(0).toUpperCase() + s.slice(1)} (${employees.filter(e => e.status === s).length})`}
+                {s === "all" ? `All (${totalRecords})` : s.charAt(0).toUpperCase() + s.slice(1)}
               </button>
             ))}
           </div>
@@ -383,7 +397,18 @@ export default function EmployeesPage() {
           {/* Search */}
           <div className="relative">
             <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: textSecondary }}></i>
-            <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search..." className="pl-9 pr-4 py-2 rounded-xl text-sm outline-none w-36 md:w-56" style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }} />
+            <input
+              value={search}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSearch(val);
+                if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                searchTimerRef.current = setTimeout(() => fetchPage({ page: 1, search: val }), 400);
+              }}
+              placeholder="Search..."
+              className="pl-9 pr-4 py-2 rounded-xl text-sm outline-none w-36 md:w-56"
+              style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }}
+            />
           </div>
         </div>
 
@@ -474,51 +499,70 @@ export default function EmployeesPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mt-4 gap-3">
           <div className="flex items-center gap-3 flex-wrap">
             <p className="text-xs" style={{ color: textSecondary }}>
-              Showing {meta?.from ?? (filtered.length === 0 ? 0 : (page - 1) * pageSize + 1)}–{meta?.to ?? Math.min(page * pageSize, totalRecords)} of {totalRecords}
+              Showing {from}–{to} of {totalRecords}
               {selected.length > 0 && <span className="ml-2 font-medium" style={{ color: "#16a34a" }}>· {selected.length} selected</span>}
             </p>
             <div className="flex items-center gap-1.5">
               <span className="text-xs" style={{ color: textSecondary }}>Per page:</span>
-              <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+              <select 
+                value={pageSize} 
+                onChange={(e) => { 
+                  const s = Number(e.target.value); 
+                  setPageSize(s); 
+                  fetchPage({ page: 1, per_page: s }); 
+                }}
                 className="px-2 py-1 rounded-lg text-xs outline-none cursor-pointer"
-                style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }}>
+                style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }}
+              >
                 {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
 
+          {/* Pagination buttons - Only show if there are pages */}
           {totalPages > 1 && (
             <div className="flex items-center gap-1">
-              <button onClick={() => handlePageChange(page - 1)} disabled={page === 1}
+              <button 
+                onClick={() => handlePageChange(currentPage - 1)} 
+                disabled={currentPage === 1}
                 className="w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: isDark ? "#374151" : "#f3f4f6", color: textPrimary }}>
+                style={{ background: isDark ? "#374151" : "#f3f4f6", color: textPrimary }}
+              >
                 <i className="ri-arrow-left-s-line text-sm"></i>
               </button>
               {getPageNumbers().map((p, i) => (
                 p === "..." ? (
                   <span key={`ellipsis-${i}`} className="w-8 h-8 flex items-center justify-center text-xs" style={{ color: textSecondary }}>…</span>
                 ) : (
-                  <button key={p} onClick={() => handlePageChange(p as number)}
+                  <button 
+                    key={p} 
+                    onClick={() => handlePageChange(p as number)}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium cursor-pointer transition-colors"
                     style={{
-                      background: page === p ? "#16a34a" : (isDark ? "#374151" : "#f3f4f6"),
-                      color: page === p ? "#ffffff" : textPrimary,
-                    }}>
+                      background: currentPage === p ? "#16a34a" : (isDark ? "#374151" : "#f3f4f6"),
+                      color: currentPage === p ? "#ffffff" : textPrimary,
+                    }}
+                  >
                     {p}
                   </button>
                 )
               ))}
-              <button onClick={() => handlePageChange(page + 1)} disabled={page === totalPages}
+              <button 
+                onClick={() => handlePageChange(currentPage + 1)} 
+                disabled={currentPage === totalPages}
                 className="w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: isDark ? "#374151" : "#f3f4f6", color: textPrimary }}>
+                style={{ background: isDark ? "#374151" : "#f3f4f6", color: textPrimary }}
+              >
                 <i className="ri-arrow-right-s-line text-sm"></i>
               </button>
             </div>
           )}
         </div>
       </div>
-
-      <EmployeeModal open={showModal} onClose={() => setShowModal(false)} onSave={handleSave} editEmployee={editEmployee} />
+      <EmployeeModal open={showModal} onClose={() => setShowModal(false)} onSave={handleSave} editEmployee={editEmployee}
+      departments={departments as string[]}
+      positions={positions as string[]}
+      areas={areas as string[]} />
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => deleteId && handleDelete(deleteId)} title="Remove Employee" message="Are you sure you want to remove this employee? This action cannot be undone." confirmLabel="Remove" danger />
       {transferType && (
         <TransferModal open={!!transferType} onClose={() => setTransferType(null)} type={transferType} employees={employees} selectedIds={selected} onConfirm={handleTransferConfirm} />

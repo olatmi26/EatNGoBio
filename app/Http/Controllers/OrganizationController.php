@@ -192,7 +192,7 @@ class OrganizationController extends Controller
                 'code'        => $p->code,
                 'name'        => $p->name,
                 'employeeQty' => $p->employee_qty,
-            ]);
+            ]);        
 
         $areas = Location::withCount([
             'devices',

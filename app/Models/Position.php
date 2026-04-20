@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Position extends Model
 {
-    protected $fillable = ['code', 'name', 'employee_qty'];
+    protected $fillable = ['code', 'name', 'employee_qty', 'slug'];
     protected $casts    = ['employee_qty' => 'integer'];
 
     public function employees(): HasMany { return $this->hasMany(Employee::class, 'position_id'); }

@@ -66,11 +66,19 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
 
     // Shifts
-    Route::get('/shifts',              [ShiftController::class, 'index'])->name('shifts.index');
-    Route::post('/shifts',             [ShiftController::class, 'store'])->name('shifts.store');
-    Route::put('/shifts/{id}',         [ShiftController::class, 'update'])->name('shifts.update');
-    Route::delete('/shifts/{id}',      [ShiftController::class, 'destroy'])->name('shifts.destroy');
-    Route::post('/shifts/assign',      [ShiftController::class, 'assign'])->name('shifts.assign');
+    Route::prefix('shifts')->name('shifts.')->group(function () {
+
+        Route::get('/',               [ShiftController::class, 'index'])->name('index');
+        Route::post('/',              [ShiftController::class, 'store'])->name('store');
+        Route::put('/{id}',           [ShiftController::class, 'update'])->name('update');
+        Route::delete('/{id}',        [ShiftController::class, 'destroy'])->name('destroy');
+        Route::post('/assign',        [ShiftController::class, 'assign'])->name('assign');
+        Route::post('/auto-assign',   [ShiftController::class, 'autoAssign'])->name('autoAssign'); 
+
+    });
+
+
+   
 
     // Organization
     Route::get('/organization/departments',         [OrganizationController::class, 'departments'])->name('org.departments');

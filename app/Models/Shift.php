@@ -1,7 +1,4 @@
 <?php
-// ============================================================
-// FILE: app/Models/Shift.php
-// ============================================================
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -10,9 +7,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Shift extends Model
 {
     protected $fillable = [
-        'name', 'code', 'start_time', 'end_time', 'work_hours',
-        'late_threshold', 'overtime_threshold', 'breaks', 'locations',
-        'color', 'employee_count', 'active', 'type',
+        'name',
+        'code',
+        'start_time',
+        'checkin_start_at',    
+        'end_time',
+        'checkout_ends_at',   
+        'work_hours',
+        'late_threshold',
+        'overtime_threshold',
+        'breaks',
+        'locations',
+        'color',
+        'employee_count',
+        'active',
+        'type',
     ];
 
     protected $casts = [
