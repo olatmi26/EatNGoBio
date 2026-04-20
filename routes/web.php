@@ -113,11 +113,10 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/roles/{id}', [SettingsController::class, 'updateRole'])->name('roles.update');
         Route::delete('/roles/{id}', [SettingsController::class, 'destroyRole'])->name('roles.destroy');
 
-        // Device provisioning
         Route::get('/pending-devices', [SettingsController::class, 'pendingDevices']);
         Route::post('/provision-device', [SettingsController::class, 'provisionDevice']);
         Route::post('/reject-device', [SettingsController::class, 'rejectDevice']);
-        // Device Provisioning
+        
         Route::post('/devices/approve/{pendingId}', [DeviceController::class, 'approve'])->name('devices.approve');
         Route::post('/devices/reject/{pendingId}', [DeviceController::class, 'reject'])->name('devices.reject');
         Route::post('/devices/reconsider/{pendingId}', [DeviceController::class, 'reconsider'])->name('devices.reconsider');
