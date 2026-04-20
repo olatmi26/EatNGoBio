@@ -19,15 +19,13 @@ use Illuminate\Support\Facades\Route;
 // ─── ZKTeco ADMS Device Protocol (NO auth, NO CSRF) ──────────────────────────
 // Also add these paths to App\Http\Middleware\VerifyCsrfToken::$except:
 //   'iclock/*'
-Route::withoutMiddleware(['auth', 'web'])
-    ->prefix('iclock')
-    ->group(function () {
-        Route::match(['GET', 'POST'], '/cdata', [ADMSController::class, 'cdata']);
-        Route::get('/getrequest', [ADMSController::class, 'getRequest']);
-        Route::post('/devicecmd', [ADMSController::class, 'deviceCmd']);
-        Route::post('/upload', [ADMSController::class, 'upload']);
-        Route::get('/fdata', [ADMSController::class, 'fdata']);
-    });
+Route::prefix('iclock')->group(function () {
+    Route::match(['get', 'post'], '/cdata', [ADMSController::class, 'cdata']);
+    Route::get('/getrequest', [ADMSController::class, 'getRequest']);
+    Route::post('/devicecmd', [ADMSController::class, 'deviceCmd']);
+    Route::post('/upload', [ADMSController::class, 'upload']);
+    Route::get('/fdata', [ADMSController::class, 'fdata']);
+});
 
 // ─── Guest Routes ─────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
