@@ -23,7 +23,15 @@ class ADMSController extends Controller
     {
         try {
             $sn = $request->query('SN') ?? $request->input('SN');
-            Log::info('ZK ADMS cdata', ['method' => $request->method(), 'sn' => $sn, 'ip' => $request->ip()]);
+            Log::channel('daily')->info('=== ZK ADMS REQUEST ===', [
+                'timestamp'    => now()->toDateTimeString(),
+                'method'       => $request->method(),
+                'sn'           => $sn,
+                'ip'           => $request->ip(),
+                'query_params' => $request->query->all(),
+                'input_data'   => $request->input(),
+                'raw_content'  => substr($request->getContent(), 0, 2000), // Log first 2000 chars
+            ]);
 
             if (! $sn) {
                 return response('ERROR: Missing SN', 400)->header('Content-Type', 'text/plain');
@@ -49,7 +57,17 @@ class ADMSController extends Controller
                 'last_seen'  => now(),
                 'ip_address' => $ip,
                 'firmware'   => $firmware,
+                'user_count' => (int) ($request->query('Cnt') ?? $request->input('Cnt', $device->user_count)),
+                'fp_count'   => (int) ($request->query('FPCnt') ?? $request->input('FPCnt', $device->fp_count)),
+                'face_count' => (int) ($request->query('FaceCnt') ?? $request->input('FaceCnt', $device->face_count)),
                 'status'     => 'online',
+            ]);
+
+            Log::info('Device counts updated', [
+                'sn'         => $sn,
+                'user_count' => $device->user_count,
+                'fp_count'   => $device->fp_count,
+                'face_count' => $device->face_count,
             ]);
 
             // ONLY fire event if status changed OR throttled (max once per minute per device)

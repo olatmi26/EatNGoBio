@@ -52,7 +52,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/devices/batch-approve', [DeviceController::class, 'batchApprove'])->name('devices.batch-approve');
     Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('devices.live-stats');
 
-
     // Employees
     Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index');
     Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store');
@@ -121,7 +120,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/pending-devices', [SettingsController::class, 'pendingDevices']);
         Route::post('/provision-device', [SettingsController::class, 'provisionDevice']);
         Route::post('/reject-device', [SettingsController::class, 'rejectDevice']);
-        
+
         Route::post('/devices/approve/{pendingId}', [DeviceController::class, 'approve'])->name('devices.approve');
         Route::post('/devices/reject/{pendingId}', [DeviceController::class, 'reject'])->name('devices.reject');
         Route::post('/devices/reconsider/{pendingId}', [DeviceController::class, 'reconsider'])->name('devices.reconsider');
@@ -142,7 +141,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 });
 
-
 Route::get('/test-pusher', function () {
     event(new \App\Events\DeviceStatusChanged(
         \App\Models\Device::first(),
@@ -150,3 +148,37 @@ Route::get('/test-pusher', function () {
     ));
     return 'Event fired!';
 });
+
+Route::get('/debug/device-data/{sn}', function ($sn) {
+    $device = \App\Models\Device::where('serial_number', $sn)->first();
+
+    if (! $device) {
+        return response()->json(['error' => 'Device not found']);
+    }
+
+    // Get recent sync logs
+    $logs = \App\Models\DeviceSyncLog::where('device_sn', $sn)
+        ->orderByDesc('synced_at')
+        ->limit(10)
+        ->get();
+
+    // Get recent attendance
+    $attendance = \App\Models\AttendanceLog::where('device_sn', $sn)
+        ->orderByDesc('punch_time')
+        ->limit(5)
+        ->get();
+
+    return response()->json([
+        'device'            => [
+            'serial_number' => $device->serial_number,
+            'name'          => $device->name,
+            'user_count'    => $device->user_count,
+            'fp_count'      => $device->fp_count,
+            'face_count'    => $device->face_count,
+            'last_seen'     => $device->last_seen,
+            'firmware'      => $device->firmware,
+        ],
+        'recent_sync_logs'  => $logs,
+        'recent_attendance' => $attendance,
+    ]);
+})->name('debug.device');
