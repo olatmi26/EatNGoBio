@@ -507,4 +507,206 @@ class ADMSController extends Controller
         Log::info('📦 ZK ADMS fdata', ['query' => $request->query()]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
+
+    /**
+     * GET /iclock/getrequest — Device polls for pending commands
+     * THIS IS WHERE WE SEND COMMANDS TO PULL DATA!
+     */
+    public function getRequest(Request $request)
+    {
+        try {
+            $sn = $request->query('SN');
+            Log::info('📥 ZK ADMS getrequest', ['sn' => $sn]);
+
+            if (! $sn) {
+                return response('ERROR', 400)->header('Content-Type', 'text/plain');
+            }
+
+            $device = Device::where('serial_number', $sn)->first();
+            if ($device) {
+                $device->update(['last_seen' => now(), 'status' => 'online']);
+
+                // 🔥 CRITICAL: Check if we need to pull user data
+                $needsUserSync = $this->shouldSyncUsers($device);
+
+                if ($needsUserSync) {
+                    $command = $this->queueUserSyncCommand($device);
+                    if ($command) {
+                        Log::info('📤 Sending user sync command', ['sn' => $sn, 'command_id' => $command->id]);
+                        return response("C:{$command->id}:DATA QUERY USERINFO", 200)
+                            ->header('Content-Type', 'text/plain');
+                    }
+                }
+
+                // Check for other pending commands
+                $pendingCommand = DeviceCommand::where('device_sn', $sn)
+                    ->where('status', 'pending')
+                    ->oldest()
+                    ->first();
+
+                if ($pendingCommand) {
+                    $pendingCommand->update(['status' => 'sent', 'sent_at' => now()]);
+                    $cmdStr = "C:{$pendingCommand->id}:{$pendingCommand->command}";
+                    if ($pendingCommand->params) {
+                        $cmdStr .= " {$pendingCommand->params}";
+                    }
+                    Log::info('📤 Sending queued command', ['sn' => $sn, 'command' => $cmdStr]);
+                    return response($cmdStr, 200)->header('Content-Type', 'text/plain');
+                }
+            }
+
+            return response("OK", 200)->header('Content-Type', 'text/plain');
+
+        } catch (\Exception $e) {
+            Log::error('❌ ZK ADMS getrequest Error: ' . $e->getMessage());
+            return response("ERROR", 500)->header('Content-Type', 'text/plain');
+        }
+    }
+
+    /**
+     * Check if device needs user data synchronization
+     */
+    private function shouldSyncUsers(Device $device): bool
+    {
+        $cacheKey = "device_user_sync_{$device->id}";
+
+        // Sync if never synced or last sync was > 1 hour ago
+        if (! Cache::has($cacheKey)) {
+            return true;
+        }
+
+        // Also sync if user count is 0 (likely needs initial sync)
+        if ($device->user_count == 0) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Queue a command to pull user info from device
+     */
+    private function queueUserSyncCommand(Device $device): ?DeviceCommand
+    {
+        // Check if there's already a pending user sync command
+        $existing = DeviceCommand::where('device_sn', $device->serial_number)
+            ->where('command', 'DATA QUERY USERINFO')
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($existing) {
+            return null;
+        }
+
+        return DeviceCommand::create([
+            'device_id' => $device->id,
+            'device_sn' => $device->serial_number,
+            'command'   => 'DATA QUERY USERINFO',
+            'params'    => 'ALL',
+            'status'    => 'pending',
+        ]);
+    }
+
+    /**
+     * Handle USERINFO response from device
+     */
+    public function processUserInfo(string $sn, string $body): int
+    {
+        $lines = preg_split("/\r\n|\n|\r/", trim($body));
+        $count = 0;
+
+        Log::info('👥 Processing USERINFO from device', ['sn' => $sn, 'lines' => count($lines)]);
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
+            $parts = explode("\t", $line);
+            if (count($parts) < 2) {
+                continue;
+            }
+
+            $pin       = $parts[0];
+            $name      = $parts[1] ?? '';
+            $password  = $parts[2] ?? '';
+            $card      = $parts[3] ?? '';
+            $group     = $parts[4] ?? '';
+            $timezone  = $parts[5] ?? '';
+            $privilege = $parts[6] ?? '0';
+            $enabled   = $parts[7] ?? '1';
+
+            // Parse name into first/last
+            $nameParts = explode(' ', trim($name), 2);
+            $firstName = $nameParts[0] ?? '';
+            $lastName  = $nameParts[1] ?? '';
+
+            $employee = Employee::updateOrCreate(
+                ['employee_id' => $pin],
+                [
+                    'first_name'       => $firstName ?: 'Employee',
+                    'last_name'        => $lastName ?: $pin,
+                    'card'             => $card ?: null,
+                    'source_device_sn' => $sn,
+                    'active'           => $enabled === '1',
+                    'employee_status'  => 'active',
+                ]
+            );
+
+            Log::debug('✅ Employee synced', [
+                'pin'         => $pin,
+                'name'        => $name,
+                'employee_id' => $employee->id,
+            ]);
+
+            $count++;
+        }
+
+        // Update device user count
+        $device = Device::where('serial_number', $sn)->first();
+        if ($device) {
+            $device->update(['user_count' => $count]);
+
+            // Mark sync as complete
+            Cache::put("device_user_sync_{$device->id}", true, now()->addHours(6));
+
+            // Log successful sync
+            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "Synced {$count} users from device");
+        }
+
+        Log::info('✅ USERINFO sync complete', ['sn' => $sn, 'users' => $count]);
+        return $count;
+    }
+
+    /**
+     * Process fingerprint template data
+     */
+    private function processFingerprintData(Device $device, string $pin, string $fingerData, int $fingerIndex): void
+    {
+        Log::info('🖐️ Processing fingerprint', [
+            'sn'    => $device->serial_number,
+            'pin'   => $pin,
+            'index' => $fingerIndex,
+            'size'  => strlen($fingerData),
+        ]);
+
+        $employee = Employee::where('employee_id', $pin)->first();
+        if (! $employee) {
+            Log::warning('Employee not found for fingerprint', ['pin' => $pin]);
+            return;
+        }
+
+        // Store fingerprint template
+        // Note: You may want to create a fingerprints table
+        // For now, we just log it
+        Log::info('Fingerprint template received', [
+            'employee_id'   => $employee->id,
+            'finger_index'  => $fingerIndex,
+            'template_size' => strlen($fingerData),
+        ]);
+
+        // Update device fp_count
+        $device->increment('fp_count');
+    }
 }
