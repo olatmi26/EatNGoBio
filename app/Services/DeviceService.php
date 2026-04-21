@@ -77,7 +77,7 @@ class DeviceService
             'ip'           => $d->ip_address ?? '-',
             'timezone'     => $d->timezone ?? 'Africa/Lagos',
             'transferMode' => $d->transfer_mode ?? 'Real-Time',
-            'status'       => $d->computed_status,
+            'status'       => $d->computed_status, // This should be 'online' or 'offline'
             'lastActivity' => $d->last_seen?->format('Y-m-d H:i:s') ?? 'Never',
             'lastSeen'     => $d->last_seen_human,
             'users'        => $d->user_count ?? 0,

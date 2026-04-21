@@ -374,18 +374,27 @@ export default function DevicesPage() {
         };
     }, []);
     // ========== CLIENT-SIDE FILTERING (Instant) ==========
+    // ========== CLIENT-SIDE FILTERING ==========
     const filteredDevices = useMemo(() => {
         if (!masterDevices.length) return [];
 
-        return masterDevices.filter((d) => {
-            const matchesSearch =
-                !search ||
-                d.name.toLowerCase().includes(search.toLowerCase()) ||
-                d.sn.toLowerCase().includes(search.toLowerCase()) ||
-                (d.area || "").toLowerCase().includes(search.toLowerCase());
+        console.log("🔍 Filtering devices:", {
+            total: masterDevices.length,
+            search,
+            statusFilter,
+            sampleDevice: masterDevices[0],
+        });
 
-            const matchesStatus = !statusFilter || d.status === statusFilter;
-
+        return masterDevices.filter(d => {
+            const matchesSearch = !search || 
+                (d.name || '').toLowerCase().includes(search.toLowerCase()) ||
+                (d.sn || '').toLowerCase().includes(search.toLowerCase()) ||
+                (d.area || '').toLowerCase().includes(search.toLowerCase());
+            
+            // Case-insensitive status matching
+            const matchesStatus = !statusFilter || 
+                (d.status || '').toLowerCase() === statusFilter.toLowerCase();
+            
             return matchesSearch && matchesStatus;
         });
     }, [masterDevices, search, statusFilter]);
@@ -467,7 +476,7 @@ export default function DevicesPage() {
         setCurrentPage(1); // Reset to first page
         fetchDevices({ status: value, page: 1 });
     };
-    
+
     const handlePerPageChange = (value: number) => {
         setPerPage(value);
         setCurrentPage(1);
