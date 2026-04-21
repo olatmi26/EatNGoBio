@@ -16,9 +16,10 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShiftController;
 use Illuminate\Support\Facades\Route;
 
-// ─── ZKTeco ADMS Device Protocol (NO auth, NO CSRF) ──────────────────────────
-// Also add these paths to App\Http\Middleware\VerifyCsrfToken::$except:
-//   'iclock/*'
+// =========================================================================
+// ZKTeco ADMS Device Protocol Routes
+// MUST be first and OUTSIDE any middleware groups
+// =========================================================================
 Route::prefix('iclock')->group(function () {
     Route::match(['get', 'post'], '/cdata', [ADMSController::class, 'cdata']);
     Route::get('/getrequest', [ADMSController::class, 'getRequest']);
@@ -48,6 +49,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/devices/{id}/employees', [DeviceController::class, 'employees'])->name('devices.employees');
     Route::post('/devices/pending/{id}/approve', [DeviceController::class, 'approve'])->name('devices.approve');
     Route::post('/devices/pending/{id}/reject', [DeviceController::class, 'reject'])->name('devices.reject');
+    Route::post('/devices/batch-approve', [DeviceController::class, 'batchApprove'])->name('devices.batch-approve');
     Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('devices.live-stats');
 
 

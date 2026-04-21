@@ -1,10 +1,9 @@
 <?php
 
-use App\Http\Middleware\AllowHttpForAdms;
-use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use App\Http\Middleware\HandleInertiaRequests;
 use Inertia\Inertia;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -15,12 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Add Inertia middleware
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);
         
-        // Exclude ADMS routes from CSRF protection
+        // CRITICAL: Exclude ADMS routes from CSRF protection
         $middleware->validateCsrfTokens(except: [
             'iclock/*',
             'iclock/cdata',
@@ -29,13 +27,18 @@ return Application::configure(basePath: dirname(__DIR__))
             'iclock/upload',
             'iclock/fdata',
         ]);
-        $middleware->append(AllowHttpForAdms::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->respond(function ($response, $exception, $request) {
+            // Don't return Inertia error pages for ADMS routes
+            if ($request->is('iclock/*')) {
+                return response('ERROR', 500)->header('Content-Type', 'text/plain');
+            }
+
             if ($request->expectsJson()) {
                 return $response;
             }
+
             $status = $response->getStatusCode();
 
             if (!in_array($status, [403, 404, 419, 500, 503], true)) {
