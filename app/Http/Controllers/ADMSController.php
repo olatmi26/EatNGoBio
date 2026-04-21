@@ -143,17 +143,19 @@ class ADMSController extends Controller
             $verify   = (int) ($parts[4] ?? 1);
             $workCode = $parts[5] ?? '0';
 
+            if ($status > 5) {
+                $status = 0; // Default to Check-In
+            }
             try {
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
             } catch (\Exception $e) {
                 continue;
             }
 
-            // In processAttendanceLogs, add a cache check to prevent reprocessing failures:
+            // Check if we've already processed this exact record
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
-
             if (Cache::has($cacheKey)) {
-                continue; // Already processed this exact record
+                continue;
             }
 
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
@@ -188,11 +190,10 @@ class ADMSController extends Controller
                     'work_code'     => $workCode,
                     'raw_line_data' => $line,
                 ]);
-                event(new AttendanceRecorded($log));
-                $saved++;
-
-                // ... create the record ...
                 Cache::put($cacheKey, true, now()->addHours(24));
+                
+                $saved++;
+                event(new AttendanceRecorded($log));
             }
         }
 
