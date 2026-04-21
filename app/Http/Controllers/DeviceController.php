@@ -1,8 +1,8 @@
 <?php
 namespace App\Http\Controllers;
 
-use App\Models\AttendanceLog;
 use App\Models\Device;
+use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
 use App\Services\DeviceService;
@@ -20,36 +20,108 @@ class DeviceController extends Controller
         private NotificationService $notifs,
     ) {}
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $perPage = $request->input('per_page', 15);
+        $search  = $request->input('search', '');
+        $status  = $request->input('status', '');
+
+        $devices         = $this->service->deviceListPaginated($search, $status, $perPage);
+        $stats           = $this->service->getStats();
+        $deviceAnalytics = $this->service->deviceStats();
+
         return Inertia::render('Devices/Index', [
-            'devices'        => $this->service->deviceList(),
-            'pendingDevices' => $this->service->pendingDevices(),
-            'areas'          => Location::orderBy('name')->get(['id', 'name', 'code']),
-            'unreadCount'    => $this->notifs->unreadCount(auth()->id()),
+            'devices'         => $devices,
+            'pendingDevices'  => $this->service->pendingDevices(),
+            'areas'           => Location::orderBy('name')->get(['id', 'name', 'code']),
+            'unreadCount'     => $this->notifs->unreadCount(auth()->id()),
+            'stats'           => $stats,
+            'deviceAnalytics' => $deviceAnalytics,
+            'filters'         => [
+                'search'   => $search,
+                'status'   => $status,
+                'per_page' => $perPage,
+            ],
         ]);
     }
 
-    public function show(int $id): Response
+    public function store(Request $request): RedirectResponse
     {
-        $detail = $this->service->deviceDetail($id);
-        return Inertia::render('Devices/Detail', array_merge($detail, [
-            'areas'       => Location::orderBy('name')->get(['id', 'name']),
-            'unreadCount' => $this->notifs->unreadCount(auth()->id()),
-        ]));
+        $validated = $request->validate([
+            'name'         => 'required|string|max:100',
+            'sn'           => 'required|string|unique:devices,serial_number',
+            'ip'           => 'required|string',
+            'area'         => 'required|string',
+            'timezone'     => 'nullable|string',
+            'transferMode' => 'nullable|string',
+            'heartbeat'    => 'nullable|integer|min:10|max:3600',
+        ]);
+
+        $this->service->storeDevice($validated);
+
+        return redirect()->route('devices.index')
+            ->with('success', 'Device added successfully.');
+    }
+
+    public function show(Request $request, int $id): Response
+    {
+        $device = Device::with('location')->findOrFail($id);
+
+        $perPage = $request->input('per_page', 15);
+        $search  = $request->input('search', '');
+        $status  = $request->input('status', '');
+
+        // Get paginated employees
+        $employeesPaginated = $this->service->getConnectedEmployeesPaginated($device, $search, $perPage);
+        $employeesSummary   = $this->service->getConnectedEmployeesSummary($device);
+
+        // Transform employee data
+        $employeesPaginated->getCollection()->transform(fn($e) => [
+            'id'         => $e->id,
+            'employeeId' => $e->employee_id,
+            'firstName'  => $e->first_name,
+            'lastName'   => $e->last_name,
+            'fullName'   => $e->full_name,
+            'department' => $e->department ?? '-',
+            'position'   => $e->position ?? '-',
+            'area'       => $e->area ?? '-',
+            'status'     => $e->employee_status ?? 'active',
+            'initials'   => $e->initials,
+        ]);
+
+        return Inertia::render('Devices/Detail', [
+            'device'             => $this->service->formatDevice($device),
+            'punchLogs'          => $this->service->getPunchLogs($device),
+            'syncHistory'        => $this->service->getSyncHistory($device),
+            'commands'           => $this->service->getCommands($device),
+            'connectedEmployees' => $employeesPaginated,
+            'employeesSummary'   => $employeesSummary,
+            'areas'              => Location::orderBy('name')->get(['id', 'name']),
+            'unreadCount'        => $this->notifs->unreadCount(auth()->id()),
+            'filters'            => [
+                'search'   => $search,
+                'status'   => $status,
+                'per_page' => $perPage,
+            ],
+        ]);
     }
 
     public function update(Request $request, int $id): RedirectResponse
     {
-        $device = Device::findOrFail($id);
-        $data   = $request->validate([
-            'name'        => 'sometimes|string|max:100',
-            'area'        => 'sometimes|nullable|string',
-            'location_id' => 'sometimes|nullable|exists:locations,id',
-            'timezone'    => 'sometimes|string',
-            'notes'       => 'sometimes|nullable|string',
+        $data = $request->validate([
+            'name'         => 'sometimes|string|max:100',
+            'sn'           => 'sometimes|string|unique:devices,serial_number,' . $id,
+            'ip'           => 'sometimes|string',
+            'area'         => 'sometimes|nullable|string',
+            'location_id'  => 'sometimes|nullable|exists:locations,id',
+            'timezone'     => 'sometimes|string',
+            'transferMode' => 'sometimes|string',
+            'heartbeat'    => 'sometimes|integer|min:10|max:3600',
+            'notes'        => 'sometimes|nullable|string',
         ]);
-        $device->update($data);
+
+        $this->service->updateDevice($id, $data);
+
         return back()->with('success', 'Device updated.');
     }
 
@@ -65,7 +137,9 @@ class DeviceController extends Controller
             'command' => 'required|string',
             'params'  => 'nullable|string',
         ]);
+
         $this->service->sendCommand($id, $data['command'], $data['params'] ?? null);
+
         return back()->with('success', "Command '{$data['command']}' queued.");
     }
 
@@ -77,8 +151,11 @@ class DeviceController extends Controller
             'location_id' => 'nullable|exists:locations,id',
             'timezone'    => 'nullable|string',
         ]);
+
         $device = $this->service->approveDevice($pendingId, $data);
-        return redirect()->route('devices.show', $device->id)->with('success', 'Device approved and registered.');
+
+        return redirect()->route('devices.show', $device->id)
+            ->with('success', 'Device approved and registered.');
     }
 
     public function reject(int $pendingId): RedirectResponse
@@ -87,11 +164,31 @@ class DeviceController extends Controller
         return back()->with('success', 'Device rejected.');
     }
 
-    /** JSON poll endpoint for Live Monitor */
-    public function liveStats(): \Illuminate\Http\JsonResponse
+    public function reconsider(int $pendingId): RedirectResponse
+    {
+        PendingDevice::findOrFail($pendingId)->update(['status' => 'pending']);
+        return back()->with('success', 'Device moved back to pending queue.');
+    }
+
+    public function batchApprove(): RedirectResponse
+    {
+        $count = $this->service->batchApprove();
+        return back()->with('success', "{$count} devices approved.");
+    }
+
+    public function stats(): JsonResponse
+    {
+        return response()->json([
+             ...$this->service->getStats(),
+            'recentActivity' => $this->service->getRecentActivity(5),
+        ]);
+    }
+
+    public function liveStats(): JsonResponse
     {
         $devices    = $this->service->deviceList();
         $heartbeats = collect($devices)->mapWithKeys(fn($d) => [$d['sn'] => $d['status'] === 'online' ? 1 : 0]);
+
         return response()->json([
             'heartbeats' => $heartbeats,
             'online'     => collect($devices)->where('status', 'online')->count(),
@@ -99,55 +196,50 @@ class DeviceController extends Controller
         ]);
     }
 
-    public function reconsider(int $pendingId): RedirectResponse
-    {
-        $pending = PendingDevice::findOrFail($pendingId);
-        $pending->update(['status' => 'pending']);
-
-        return back()->with('success', 'Device moved back to pending queue.');
-    }
-
     /**
-     * Get device statistics for dashboard/widgets
+     * Get paginated employees for a device (AJAX).
      */
-    public function stats(): JsonResponse
+    public function employees(Request $request, int $id): JsonResponse
     {
-        $totalDevices   = Device::where('approved', true)->count();
-        $onlineDevices  = Device::where('approved', true)->get()->filter(fn($d) => $d->is_online)->count();
-        $offlineDevices = $totalDevices - $onlineDevices;
-        $pendingDevices = PendingDevice::where('status', 'pending')->count();
+        $device = Device::findOrFail($id);
 
-        $recentActivity = AttendanceLog::with(['device', 'employee'])
-            ->orderByDesc('punch_time')
-            ->limit(5)
-            ->get()
-            ->map(fn($log) => [
-                'id'       => $log->id,
-                'device'   => $log->device?->name ?? $log->device_sn,
-                'employee' => $log->employee?->full_name ?? "PIN {$log->employee_pin}",
-                'time'         => $log->punch_time->diffForHumans(),
-                'type'         => $log->punch_type_label,
-            ]);
+        $perPage = $request->input('per_page', 15);
+        $search  = $request->input('search', '');
+        $status  = $request->input('status', '');
+
+        $query = Employee::where('area', $device->area)
+            ->where('active', true)
+            ->when($search, function ($q) use ($search) {
+                $q->where(function ($sub) use ($search) {
+                    $sub->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('employee_id', 'like', "%{$search}%")
+                        ->orWhere('department', 'like', "%{$search}%")
+                        ->orWhere('position', 'like', "%{$search}%");
+                });
+            })
+            ->when($status, function ($q) use ($status) {
+                $q->where('employee_status', $status);
+            })
+            ->orderBy('first_name');
+
+        $employees = $query->paginate($perPage);
+
+        $employees->getCollection()->transform(fn($e) => [
+            'id'         => $e->id,
+            'employeeId' => $e->employee_id,
+            'firstName'  => $e->first_name,
+            'lastName'   => $e->last_name,
+            'fullName'   => $e->full_name,
+            'department' => $e->department ?? '-',
+            'position'   => $e->position ?? '-',
+            'area'       => $e->area ?? '-',
+            'status'     => $e->employee_status ?? 'active',
+            'initials'   => $e->initials,
+        ]);
 
         return response()->json([
-            'total'          => $totalDevices,
-            'online'         => $onlineDevices,
-            'offline'        => $offlineDevices,
-            'pending'        => $pendingDevices,
-            'recentActivity' => $recentActivity,
+            'employees' => $employees,
         ]);
-    }
-
-    // In DeviceController
-    public function batchApprove(): RedirectResponse
-    {
-        $updated = Device::where('approved', false)
-            ->orWhere('status', 'unregistered')
-            ->update([
-                'approved' => true,
-                'status'   => 'offline',
-            ]);
-
-        return back()->with('success', $updated . ' devices approved.');
     }
 }

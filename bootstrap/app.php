@@ -1,9 +1,10 @@
 <?php
 
+use App\Http\Middleware\AllowHttpForAdms;
+use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use App\Http\Middleware\HandleInertiaRequests;
 use Inertia\Inertia;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -28,13 +29,13 @@ return Application::configure(basePath: dirname(__DIR__))
             'iclock/upload',
             'iclock/fdata',
         ]);
+        $middleware->append(AllowHttpForAdms::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->respond(function ($response, $exception, $request) {
             if ($request->expectsJson()) {
                 return $response;
             }
-
             $status = $response->getStatusCode();
 
             if (!in_array($status, [403, 404, 419, 500, 503], true)) {

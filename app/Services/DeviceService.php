@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Services;
 
 use App\Models\AttendanceLog;
@@ -10,12 +9,54 @@ use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
 use Carbon\Carbon;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class DeviceService
 {
+    /**
+     * Get paginated device list with optional filters.
+     */
+    public function deviceListPaginated(string $search = '', string $status = '', int $perPage = 15): LengthAwarePaginator
+    {
+        $query = Device::with('location')
+            ->when($search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('serial_number', 'like', "%{$search}%")
+                        ->orWhere('area', 'like', "%{$search}%")
+                        ->orWhere('ip_address', 'like', "%{$search}%");
+                });
+            })
+            ->when($status, function ($query, $status) {
+                if ($status === 'online') {
+                    $query->where('approved', true)
+                        ->whereNotNull('last_seen')
+                        ->whereRaw('last_seen > DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
+                } elseif ($status === 'offline') {
+                    $query->where('approved', true)
+                        ->where(function ($q) {
+                            $q->whereNull('last_seen')
+                                ->orWhereRaw('last_seen <= DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
+                        });
+                } elseif ($status === 'unregistered') {
+                    $query->where('approved', false);
+                }
+            })
+            ->orderBy('name');
+
+        $paginator = $query->paginate($perPage);
+
+        // Transform the collection
+        $paginator->getCollection()->transform(fn($d) => $this->formatDevice($d));
+
+        return $paginator;
+    }
+
+    /**
+     * Get all devices (non-paginated) - for dropdowns, exports, etc.
+     */
     public function deviceList(): array
     {
-        // Eager-load location — no N+1 (list all registered devices; `computed_status` is unregistered until approved)
         return Device::with('location')
             ->orderBy('name')
             ->get()
@@ -23,6 +64,9 @@ class DeviceService
             ->toArray();
     }
 
+    /**
+     * Format a single device for frontend display.
+     */
     public function formatDevice(Device $d): array
     {
         return [
@@ -43,19 +87,86 @@ class DeviceService
             'heartbeat'    => $d->heartbeat_interval ?? 10,
             'punchesToday' => $d->todayPunchCount(),
             'location'     => $d->location?->name,
-            'approved'     => (bool)$d->approved,
+            'approved'     => (bool) $d->approved,
         ];
     }
 
+    /**
+     * Store a new device.
+     */
+    public function storeDevice(array $data): Device
+    {
+        $location = Location::where('name', $data['area'])->first();
+
+        return Device::create([
+            'serial_number'      => $data['sn'],
+            'name'               => $data['name'],
+            'area'               => $data['area'],
+            'location_id'        => $location?->id,
+            'ip_address'         => $data['ip'],
+            'timezone'           => $data['timezone'] ?? 'Africa/Lagos',
+            'transfer_mode'      => $data['transferMode'] ?? 'Real-Time',
+            'heartbeat_interval' => $data['heartbeat'] ?? 60,
+            'approved'           => true,
+            'status'             => 'offline',
+        ]);
+    }
+
+    /**
+     * Update an existing device.
+     */
+    public function updateDevice(int $id, array $data): Device
+    {
+        $device = Device::findOrFail($id);
+
+        $updateData = [
+            'name'               => $data['name'] ?? $device->name,
+            'area'               => $data['area'] ?? $device->area,
+            'ip_address'         => $data['ip'] ?? $device->ip_address,
+            'timezone'           => $data['timezone'] ?? $device->timezone,
+            'transfer_mode'      => $data['transferMode'] ?? $device->transfer_mode,
+            'heartbeat_interval' => $data['heartbeat'] ?? $device->heartbeat_interval,
+        ];
+
+        if (isset($data['sn'])) {
+            $updateData['serial_number'] = $data['sn'];
+        }
+
+        if (isset($data['area'])) {
+            $location                  = Location::where('name', $data['area'])->first();
+            $updateData['location_id'] = $location?->id;
+        }
+
+        $device->update($updateData);
+
+        return $device->fresh();
+    }
+
+    /**
+     * Get device details with relations.
+     */
     public function deviceDetail(int $id): array
     {
         $device = Device::with('location')->findOrFail($id);
 
-        // Punch logs — with employee, no N+1
-        $punchLogs = AttendanceLog::with('employee')
+        return [
+            'device'             => $this->formatDevice($device),
+            'punchLogs'          => $this->getPunchLogs($device),
+            'syncHistory'        => $this->getSyncHistory($device),
+            'commands'           => $this->getCommands($device),
+            'connectedEmployees' => $this->getConnectedEmployees($device),
+        ];
+    }
+
+    /**
+     * Get punch logs for a device.
+     */
+    public function getPunchLogs(Device $device, int $limit = 50): array
+    {
+        return AttendanceLog::with('employee')
             ->where('device_sn', $device->serial_number)
             ->orderByDesc('punch_time')
-            ->limit(50)
+            ->limit($limit)
             ->get()
             ->map(fn($log) => [
                 'id'           => $log->id,
@@ -67,11 +178,16 @@ class DeviceService
                 'verifyMode'   => $log->punch_type_label,
                 'status'       => 'success',
             ])->toArray();
+    }
 
-        // Sync history
-        $syncHistory = DeviceSyncLog::where('device_id', $device->id)
+    /**
+     * Get sync history for a device.
+     */
+    public function getSyncHistory(Device $device, int $limit = 20): array
+    {
+        return DeviceSyncLog::where('device_id', $device->id)
             ->orderByDesc('synced_at')
-            ->limit(20)
+            ->limit($limit)
             ->get()
             ->map(fn($s) => [
                 'id'        => $s->id,
@@ -82,11 +198,16 @@ class DeviceService
                 'duration'  => $s->duration ?? '0.2s',
                 'message'   => $s->message ?? '',
             ])->toArray();
+    }
 
-        // Commands
-        $commands = DeviceCommand::where('device_id', $device->id)
+    /**
+     * Get command history for a device.
+     */
+    public function getCommands(Device $device, int $limit = 20): array
+    {
+        return DeviceCommand::where('device_id', $device->id)
             ->orderByDesc('created_at')
-            ->limit(20)
+            ->limit($limit)
             ->get()
             ->map(fn($c) => [
                 'id'       => $c->id,
@@ -95,9 +216,14 @@ class DeviceService
                 'status'   => $c->status,
                 'response' => $c->response ?? '-',
             ])->toArray();
+    }
 
-        // Connected employees (those in the same area)
-        $connectedEmployees = Employee::where('area', $device->area)
+    /**
+     * Get connected employees for a device (same area).
+     */
+    public function getConnectedEmployees(Device $device): array
+    {
+        return Employee::where('area', $device->area)
             ->where('active', true)
             ->get()
             ->map(fn($e) => [
@@ -110,28 +236,27 @@ class DeviceService
                 'area'       => $e->area ?? '-',
                 'status'     => $e->employee_status ?? 'active',
             ])->toArray();
-
-        return [
-            'device'             => $this->formatDevice($device),
-            'punchLogs'          => $punchLogs,
-            'syncHistory'        => $syncHistory,
-            'commands'           => $commands,
-            'connectedEmployees' => $connectedEmployees,
-        ];
     }
 
+    /**
+     * Send a command to a device.
+     */
     public function sendCommand(int $deviceId, string $command, ?string $params = null): DeviceCommand
     {
         $device = Device::findOrFail($deviceId);
+
         return DeviceCommand::create([
-            'device_id'  => $device->id,
-            'device_sn'  => $device->serial_number,
-            'command'    => $command,
-            'params'     => $params,
-            'status'     => 'pending',
+            'device_id' => $device->id,
+            'device_sn' => $device->serial_number,
+            'command'   => $command,
+            'params'    => $params,
+            'status'    => 'pending',
         ]);
     }
 
+    /**
+     * Get pending devices awaiting approval.
+     */
     public function pendingDevices(): array
     {
         return PendingDevice::where('status', 'pending')
@@ -143,7 +268,7 @@ class DeviceService
                 'ip'            => $pd->ip_address,
                 'model'         => $pd->model ?? 'ZKTeco',
                 'firmware'      => $pd->firmware ?? '-',
-                'firstSeen'     => $pd->first_seen->format('Y-m-d H:i:s'),
+                'firstSeen'     => $pd->first_seen?->format('Y-m-d H:i:s') ?? '-',
                 'lastHeartbeat' => $pd->last_heartbeat?->format('Y-m-d H:i:s') ?? '-',
                 'status'        => $pd->status,
                 'requestCount'  => $pd->request_count,
@@ -151,10 +276,14 @@ class DeviceService
             ])->toArray();
     }
 
+    /**
+     * Approve a pending device.
+     */
     public function approveDevice(int $pendingId, array $data): Device
     {
         $pending = PendingDevice::findOrFail($pendingId);
-        $device  = Device::create([
+
+        $device = Device::create([
             'serial_number'      => $pending->serial_number,
             'name'               => $data['name'] ?? $pending->suggested_name ?? $pending->serial_number,
             'area'               => $data['area'] ?? null,
@@ -167,16 +296,68 @@ class DeviceService
             'approved'           => true,
             'status'             => 'offline',
         ]);
+
         $pending->update(['status' => 'approved']);
+
         return $device;
     }
 
+    /**
+     * Batch approve all unregistered devices.
+     */
+    public function batchApprove(): int
+    {
+        return Device::where('approved', false)
+            ->orWhere('status', 'unregistered')
+            ->update([
+                'approved' => true,
+                'status'   => 'offline',
+            ]);
+    }
+
+    /**
+     * Get device statistics for dashboard/widgets.
+     */
+    public function getStats(): array
+    {
+        $totalDevices  = Device::count();
+        $onlineDevices = Device::where('approved', true)->get()->filter(fn($d) => $d->is_online)->count();
+
+        return [
+            'total'      => $totalDevices,
+            'online'     => $onlineDevices,
+            'offline'    => Device::where('approved', true)->count() - $onlineDevices,
+            'totalUsers' => Device::sum('user_count'),
+            'pending'    => PendingDevice::where('status', 'pending')->count(),
+        ];
+    }
+
+    /**
+     * Get recent activity for dashboard.
+     */
+    public function getRecentActivity(int $limit = 5): array
+    {
+        return AttendanceLog::with(['device', 'employee'])
+            ->orderByDesc('punch_time')
+            ->limit($limit)
+            ->get()
+            ->map(fn($log) => [
+                'id'       => $log->id,
+                'device'   => $log->device?->name ?? $log->device_sn,
+                'employee' => $log->employee?->full_name ?? "PIN {$log->employee_pin}",
+                'time'         => $log->punch_time->diffForHumans(),
+                'type'         => $log->punch_type_label,
+            ])->toArray();
+    }
+
+    /**
+     * Get location statistics for analytics.
+     */
     public function locationStats(): array
     {
         $today  = Carbon::today();
-        $colors = ['#16a34a','#0891b2','#f59e0b','#7c3aed','#db2777','#dc2626','#d97706','#65a30d'];
+        $colors = ['#16a34a', '#0891b2', '#f59e0b', '#7c3aed', '#db2777', '#dc2626', '#d97706', '#65a30d'];
 
-        // One query per stat type, not N+1 per location
         $empByLocation = Employee::where('active', true)
             ->whereNotNull('location_id')
             ->selectRaw('location_id, COUNT(*) as total')
@@ -203,9 +384,10 @@ class DeviceService
         return $locations->map(function ($loc) use (
             &$i, $colors, $empByLocation, $presentByLocation, $devicesPerLocation
         ) {
-            $total   = (int)($empByLocation[$loc->id] ?? 0);
-            $present = (int)($presentByLocation[$loc->id] ?? 0);
-            $devs    = (int)($devicesPerLocation[$loc->id] ?? 0);
+            $total      = (int) ($empByLocation[$loc->id] ?? 0);
+            $present    = (int) ($presentByLocation[$loc->id] ?? 0);
+            $devs       = (int) ($devicesPerLocation[$loc->id] ?? 0);
+            $onlineDevs = $loc->online_device_count;
 
             return [
                 'id'             => $loc->id,
@@ -214,24 +396,25 @@ class DeviceService
                 'presentToday'   => $present,
                 'attendanceRate' => $total > 0 ? round(($present / $total) * 100, 1) : 0,
                 'devices'        => $devs,
-                'onlineDevices'  => 0, // computed lazily to avoid N+1
+                'onlineDevices'  => $onlineDevs,
                 'trend'          => [],
                 'color'          => $colors[$i++ % count($colors)],
             ];
         })->toArray();
     }
 
+    /**
+     * Get device analytics stats.
+     */
     public function deviceStats(): array
     {
         $today = Carbon::today();
 
-        // All punch counts in ONE query
         $todayCounts = AttendanceLog::whereDate('punch_time', $today)
             ->selectRaw('device_id, COUNT(*) as cnt')
             ->groupBy('device_id')
             ->pluck('cnt', 'device_id');
 
-        // 7-day history in ONE query
         $weekCounts = AttendanceLog::where('punch_time', '>=', $today->copy()->subDays(6)->startOfDay())
             ->selectRaw('device_id, DATE(punch_time) as day, COUNT(*) as cnt')
             ->groupBy('device_id', 'day')
@@ -239,22 +422,90 @@ class DeviceService
             ->groupBy('device_id');
 
         return Device::where('approved', true)->get()->map(function ($d) use ($today, $todayCounts, $weekCounts) {
-            $punchesToday = (int)($todayCounts[$d->id] ?? 0);
+            $punchesToday = (int) ($todayCounts[$d->id] ?? 0);
             $devWeek      = $weekCounts->get($d->id, collect())->keyBy('day');
             $weekly       = [];
+
             for ($i = 6; $i >= 0; $i--) {
-                $weekly[] = (int)($devWeek->get($today->copy()->subDays($i)->toDateString())?->cnt ?? 0);
+                $weekly[] = (int) ($devWeek->get($today->copy()->subDays($i)->toDateString())?->cnt ?? 0);
             }
+
+            // Calculate dynamic success rate from sync logs
+            $successRate = $this->calculateDeviceSuccessRate($d->id);
+
             return [
-                'id'           => $d->id,
-                'deviceName'   => $d->name ?? $d->serial_number,
-                'location'     => $d->area ?? '-',
-                'status'       => $d->computed_status,
-                'punchesToday' => $punchesToday,
-                'lastSync'     => $d->last_seen?->format('Y-m-d H:i') ?? '-',
-                'successRate'  => 98.0,
-                'weeklyPunches'=> $weekly,
+                'id'            => $d->id,
+                'deviceName'    => $d->name ?? $d->serial_number,
+                'location'      => $d->area ?? '-',
+                'status'        => $d->computed_status,
+                'punchesToday'  => $punchesToday,
+                'lastSync'      => $d->last_seen?->format('Y-m-d H:i') ?? '-',
+                'successRate'   => $successRate,
+                'weeklyPunches' => $weekly,
             ];
         })->toArray();
+    }
+
+    /**
+     * Calculate device success rate based on sync logs from the last 7 days.
+     */
+    private function calculateDeviceSuccessRate(int $deviceId): float
+    {
+        $logs = DeviceSyncLog::where('device_id', $deviceId)
+            ->where('created_at', '>=', now()->subDays(7))
+            ->get();
+
+        if ($logs->isEmpty()) {
+            return 100.0;
+        }
+
+        $successful = $logs->where('status', 'success')->count();
+        return round(($successful / $logs->count()) * 100, 1);
+    }
+
+    /**
+     * Get paginated connected employees for a device.
+     */
+    public function getConnectedEmployeesPaginated(Device $device, string $search = '', int $perPage = 15): LengthAwarePaginator
+    {
+        return Employee::where('area', $device->area)
+            ->where('active', true)
+            ->when($search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('employee_id', 'like', "%{$search}%")
+                        ->orWhere('department', 'like', "%{$search}%")
+                        ->orWhere('position', 'like', "%{$search}%");
+                });
+            })
+            ->orderBy('first_name')
+            ->paginate($perPage);
+    }
+
+/**
+ * Get connected employees summary (for initial load).
+ */
+    public function getConnectedEmployeesSummary(Device $device): array
+    {
+        $total = Employee::where('area', $device->area)
+            ->where('active', true)
+            ->count();
+
+        $activeCount = Employee::where('area', $device->area)
+            ->where('active', true)
+            ->where('employee_status', 'active')
+            ->count();
+
+        $probationCount = Employee::where('area', $device->area)
+            ->where('active', true)
+            ->where('employee_status', 'probation')
+            ->count();
+
+        return [
+            'total'     => $total,
+            'active'    => $activeCount,
+            'probation' => $probationCount,
+        ];
     }
 }

@@ -360,17 +360,19 @@ class ADMSController extends Controller
         Log::info("ZK ADMS OPERLOG {$device->serial_number}: " . substr($body, 0, 200));
     }
 
-    public function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
+    private function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
     {
         DeviceSyncLog::create([
-            'device_sn' => $device->serial_number,
-            'device_id' => $device->id,
-            'type'      => $type,
-            'records'   => $records,
-            'status'    => $status,
-            'duration'  => $duration,
-            'message'   => $message,
-            'synced_at' => now(),
+            'device_sn'  => $device->serial_number,
+            'device_id'  => $device->id,
+            'type'       => $type,
+            'records'    => $records,
+            'status'     => $status,
+            'duration'   => $duration,
+            'message'    => $message,
+            'synced_at'  => now(),
+            'created_at' => now(), // Explicitly set
+            'updated_at' => now(), // Explicitly set
         ]);
     }
 }

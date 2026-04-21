@@ -40,13 +40,16 @@ Route::middleware(['auth'])->group(function () {
 
     // Devices
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
+    Route::post('/devices', [DeviceController::class, 'store'])->name('devices.store');
     Route::get('/devices/{id}', [DeviceController::class, 'show'])->name('devices.show');
     Route::put('/devices/{id}', [DeviceController::class, 'update'])->name('devices.update');
     Route::delete('/devices/{id}', [DeviceController::class, 'destroy'])->name('devices.destroy');
     Route::post('/devices/{id}/command', [DeviceController::class, 'sendCommand'])->name('devices.command');
+    Route::get('/devices/{id}/employees', [DeviceController::class, 'employees'])->name('devices.employees');
     Route::post('/devices/pending/{id}/approve', [DeviceController::class, 'approve'])->name('devices.approve');
     Route::post('/devices/pending/{id}/reject', [DeviceController::class, 'reject'])->name('devices.reject');
     Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('devices.live-stats');
+
 
     // Employees
     Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index');
