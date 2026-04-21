@@ -114,6 +114,18 @@ class ADMSController extends Controller
         $lines = array_filter(explode("\n", trim($body)));
         $saved = 0;
 
+        // Pre-fetch employees for this batch
+        $pins = [];
+        foreach ($lines as $line) {
+            $parts = preg_split('/[\t ]+/', trim($line));
+            if (count($parts) >= 3) {
+                $pins[] = $parts[0];
+            }
+        }
+
+        $employees = Employee::whereIn('employee_id', array_unique($pins))
+            ->pluck('id', 'employee_id');
+
         foreach ($lines as $line) {
             $line = trim($line);
             if (! $line) {
@@ -137,12 +149,35 @@ class ADMSController extends Controller
                 continue;
             }
 
+            // In processAttendanceLogs, add a cache check to prevent reprocessing failures:
+            $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
+
+            if (Cache::has($cacheKey)) {
+                continue; // Already processed this exact record
+            }
+
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
                 ->where('employee_pin', $pin)
                 ->where('punch_time', $punchTime)
                 ->exists();
 
             if (! $exists) {
+                $employeeId = $employees[$pin] ?? null;
+                // If employee doesn't exist, auto-create them
+                if (! $employeeId) {
+                    $employee = Employee::firstOrCreate(
+                        ['employee_id' => $pin],
+                        [
+                            'first_name'       => 'PIN',
+                            'last_name'        => $pin,
+                            'active'           => true,
+                            'employee_status'  => 'active',
+                            'source_device_sn' => $device->serial_number,
+                        ]
+                    );
+                    $employeeId      = $employee->id;
+                    $employees[$pin] = $employeeId;
+                }
                 $log = AttendanceLog::create([
                     'device_id'     => $device->id,
                     'device_sn'     => $device->serial_number,
@@ -155,6 +190,9 @@ class ADMSController extends Controller
                 ]);
                 event(new AttendanceRecorded($log));
                 $saved++;
+
+                // ... create the record ...
+                Cache::put($cacheKey, true, now()->addHours(24));
             }
         }
 

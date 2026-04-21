@@ -151,34 +151,25 @@ Route::get('/test-pusher', function () {
 
 Route::get('/debug/device-data/{sn}', function ($sn) {
     $device = \App\Models\Device::where('serial_number', $sn)->first();
-
-    if (! $device) {
+    
+    if (!$device) {
         return response()->json(['error' => 'Device not found']);
     }
-
-    // Get recent sync logs
-    $logs = \App\Models\DeviceSyncLog::where('device_sn', $sn)
-        ->orderByDesc('synced_at')
-        ->limit(10)
-        ->get();
-
-    // Get recent attendance
-    $attendance = \App\Models\AttendanceLog::where('device_sn', $sn)
-        ->orderByDesc('punch_time')
-        ->limit(5)
-        ->get();
-
+    
     return response()->json([
-        'device'            => [
+        'device' => [
             'serial_number' => $device->serial_number,
-            'name'          => $device->name,
-            'user_count'    => $device->user_count,
-            'fp_count'      => $device->fp_count,
-            'face_count'    => $device->face_count,
-            'last_seen'     => $device->last_seen,
-            'firmware'      => $device->firmware,
+            'name' => $device->name,
+            'user_count' => $device->user_count,
+            'fp_count' => $device->fp_count,
+            'face_count' => $device->face_count,
+            'last_seen' => $device->last_seen,
+            'status' => $device->status,
         ],
-        'recent_sync_logs'  => $logs,
-        'recent_attendance' => $attendance,
+        'recent_logs' => \App\Models\DeviceSyncLog::where('device_sn', $sn)
+            ->orderByDesc('synced_at')
+            ->limit(10)
+            ->get(),
+        'attendance_count' => \App\Models\AttendanceLog::where('device_sn', $sn)->count(),
     ]);
 })->name('debug.device');
