@@ -70,7 +70,7 @@ class ADMSController extends Controller
                 'face_count' => $device->face_count,
             ]);
 
-            // Fire status change event (throttled)
+           
             $this->fireDeviceStatusEvent($device, $wasOnline);
 
             // Handle POST data
