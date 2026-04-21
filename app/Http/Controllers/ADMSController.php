@@ -17,8 +17,7 @@ use Illuminate\Support\Facades\Log;
 class ADMSController extends Controller
 {
     /**
-     * GET  /iclock/cdata  — Device registration / handshake
-     * POST /iclock/cdata  — Device pushes attendance / user data
+     * GET/POST /iclock/cdata — Device registration / handshake / data push
      */
     public function cdata(Request $request)
     {
@@ -31,12 +30,10 @@ class ADMSController extends Controller
                 'sn'           => $sn,
                 'ip'           => $request->ip(),
                 'query_params' => $request->query->all(),
-                'input_data'   => $request->input(),
-                'raw_content'  => substr($request->getContent(), 0, 2000),
+                'raw_content'  => substr($request->getContent(), 0, 500),
             ]);
 
             if (! $sn) {
-                Log::warning('ZK ADMS: Missing SN in request');
                 return response('ERROR: Missing SN', 400)->header('Content-Type', 'text/plain');
             }
 
@@ -52,10 +49,10 @@ class ADMSController extends Controller
                 return $this->handleUnknownDevice($sn, $ip, $firmware, $model, $options);
             }
 
-            // Track previous status for event firing
+            // Track previous status
             $wasOnline = $device->status === 'online';
 
-            // Update device with latest data
+            // Update device
             $device->update([
                 'last_seen'  => now(),
                 'ip_address' => $ip,
@@ -66,43 +63,40 @@ class ADMSController extends Controller
                 'status'     => 'online',
             ]);
 
-            Log::info('📊 Device counts updated', [
+            Log::info('📊 Device updated', [
                 'sn'         => $sn,
                 'user_count' => $device->user_count,
                 'fp_count'   => $device->fp_count,
                 'face_count' => $device->face_count,
             ]);
 
-            // Fire status change event (throttled to max once per minute)
+            // Fire status change event (throttled)
             $this->fireDeviceStatusEvent($device, $wasOnline);
 
-            // Handle POST data (attendance logs or user info)
+            // Handle POST data
             if ($request->isMethod('POST')) {
                 return $this->handlePostData($request, $device);
             }
 
-            // GET request - Handshake response
+            // GET handshake
             if ($options === 'all') {
                 return $this->sendHandshakeResponse($device);
             }
 
-            // Record heartbeat in sync log
-            $this->writeSyncLog($device, 'heartbeat', 0, 'success', '0.1s', 'Heartbeat OK');
-
+            $this->writeSyncLog($device, 'heartbeat', 0, 'success', null, 'Heartbeat OK');
             return response("OK", 200)->header('Content-Type', 'text/plain');
 
         } catch (\Exception $e) {
             Log::error('❌ ZK ADMS Error: ' . $e->getMessage(), [
-                'file'  => $e->getFile(),
-                'line'  => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ]);
             return response("ERROR", 500)->header('Content-Type', 'text/plain');
         }
     }
 
     /**
-     * Handle unknown device - save to pending
+     * Handle unknown device
      */
     private function handleUnknownDevice(string $sn, string $ip, string $firmware, string $model, ?string $options)
     {
@@ -120,7 +114,7 @@ class ADMSController extends Controller
         }
         $pending->save();
 
-        Log::info('🔍 ZK ADMS: Unknown device saved as pending', ['sn' => $sn, 'ip' => $ip]);
+        Log::info('🔍 Unknown device saved as pending', ['sn' => $sn, 'ip' => $ip]);
 
         if ($options === 'all') {
             $response = implode("\r\n", [
@@ -162,15 +156,13 @@ class ADMSController extends Controller
 
         if ($table === 'ATTLOG') {
             $count = $this->processAttendanceLogs($device, $rawBody);
-            $this->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} attendance records synced");
-            Log::info('✅ ZK ADMS ATTLOG processed', ['sn' => $device->serial_number, 'records' => $count]);
+            $this->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} records");
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
         if ($table === 'USERINFO') {
-            $count = $this->processUserInfo($device->serial_number, $rawBody);
-            $this->writeSyncLog($device, 'user', $count, 'success', null, "{$count} users synchronized");
-            Log::info('✅ ZK ADMS USERINFO processed', ['sn' => $device->serial_number, 'records' => $count]);
+            $count = $this->processUserInfo($device, $rawBody);
+            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "{$count} users");
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
@@ -179,12 +171,12 @@ class ADMSController extends Controller
             return response("OK", 200)->header('Content-Type', 'text/plain');
         }
 
-        Log::warning('⚠️ ZK ADMS: Unknown table', ['sn' => $device->serial_number, 'table' => $table]);
+        Log::warning('⚠️ Unknown table', ['sn' => $device->serial_number, 'table' => $table]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
 
     /**
-     * Send handshake response to device
+     * Send handshake response
      */
     private function sendHandshakeResponse(Device $device)
     {
@@ -209,12 +201,12 @@ class ADMSController extends Controller
             "",
         ]);
 
-        Log::info('🤝 ZK ADMS Handshake sent', ['sn' => $device->serial_number]);
+        Log::info('🤝 Handshake sent', ['sn' => $device->serial_number]);
         return response($response, 200)->header('Content-Type', 'text/plain');
     }
 
     /**
-     * Process attendance logs from device
+     * Process attendance logs
      */
     private function processAttendanceLogs(Device $device, string $body): int
     {
@@ -224,19 +216,6 @@ class ADMSController extends Controller
         }
 
         $saved = 0;
-
-        // Pre-fetch employees for this batch
-        $pins = [];
-        foreach ($lines as $line) {
-            $parts = preg_split('/[\t ]+/', trim($line));
-            if (count($parts) >= 3) {
-                $pins[] = $parts[0];
-            }
-        }
-
-        $employees = Employee::whereIn('employee_id', array_unique($pins))
-            ->pluck('id', 'employee_id')
-            ->toArray();
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -255,29 +234,21 @@ class ADMSController extends Controller
             $verify   = (int) ($parts[4] ?? 1);
             $workCode = $parts[5] ?? '0';
 
-            // Sanitize punch_type - ZKTeco standard is 0-5
-            // 255 typically means "Check-In" on some firmware
-            $punchType = $status;
-            if ($punchType > 5) {
-                $punchType = 0;
-                Log::debug('🔄 Sanitized punch_type', ['original' => $status, 'sanitized' => $punchType]);
-            }
+            // Sanitize punch_type
+            $punchType = $status > 5 ? 0 : $status;
 
             try {
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
             } catch (\Exception $e) {
-                Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime, 'line' => $line]);
                 continue;
             }
 
-            // Check for duplicate using cache
+            // Check duplicate
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
             if (Cache::has($cacheKey)) {
-                Log::debug('⏭️ Skipping duplicate record', ['pin' => $pin, 'time' => $punchTime->toDateTimeString()]);
                 continue;
             }
 
-            // Check database for duplicate
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
                 ->where('employee_pin', $pin)
                 ->where('punch_time', $punchTime)
@@ -289,29 +260,14 @@ class ADMSController extends Controller
             }
 
             // Find or create employee
-            $employeeId = $employees[$pin] ?? null;
-            if (! $employeeId) {
-                $employee = Employee::firstOrCreate(
-                    ['employee_id' => $pin],
-                    [
-                        'first_name'       => 'Employee',
-                        'last_name'        => $pin,
-                        'active'           => true,
-                        'employee_status'  => 'active',
-                        'source_device_sn' => $device->serial_number,
-                    ]
-                );
-                $employeeId      = $employee->id;
-                $employees[$pin] = $employeeId;
-                Log::info('👤 Auto-created employee', ['pin' => $pin, 'employee_id' => $employeeId]);
-            }
+            $employee = $this->findOrCreateEmployee($pin, $device);
 
-            // Create attendance record
+            // Create attendance log
             $log = AttendanceLog::create([
                 'device_id'     => $device->id,
                 'device_sn'     => $device->serial_number,
                 'employee_pin'  => $pin,
-                'employee_id'   => $employeeId,
+                'employee_id'   => $employee->id,
                 'punch_time'    => $punchTime,
                 'punch_type'    => $punchType,
                 'verify_type'   => $verify,
@@ -322,31 +278,19 @@ class ADMSController extends Controller
             Cache::put($cacheKey, true, now()->addHours(24));
             $saved++;
 
-            // Fire real-time event
             event(new AttendanceRecorded($log));
-
-            Log::info('✅ Attendance saved', [
-                'pin'         => $pin,
-                'employee_id' => $employeeId,
-                'punch_type'  => $punchType,
-                'punch_time'  => $punchTime->toDateTimeString(),
-            ]);
         }
 
         return $saved;
     }
 
-    
-
-     /**
-     * Handle USERINFO response from device
+    /**
+     * Process USERINFO data
      */
-    public function processUserInfo(string $sn, string $body): int
+    private function processUserInfo(Device $device, string $body): int
     {
         $lines = preg_split("/\r\n|\n|\r/", trim($body));
         $count = 0;
-
-        Log::info('👥 Processing USERINFO from device', ['sn' => $sn, 'lines' => count($lines)]);
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -359,76 +303,192 @@ class ADMSController extends Controller
                 continue;
             }
 
-            $pin       = $parts[0];
-            $name      = $parts[1] ?? '';
-            $password  = $parts[2] ?? '';
-            $card      = $parts[3] ?? '';
-            $group     = $parts[4] ?? '';
-            $timezone  = $parts[5] ?? '';
-            $privilege = $parts[6] ?? '0';
-            $enabled   = $parts[7] ?? '1';
+            $pin     = $parts[0];
+            $name    = $parts[1] ?? '';
+            $card    = $parts[3] ?? null;
+            $pri     = $parts[6] ?? '0';
+            $enabled = $parts[7] ?? '1';
 
-            // Parse name into first/last
-            $nameParts = explode(' ', trim($name), 2);
-            $firstName = $nameParts[0] ?? '';
-            $lastName  = $nameParts[1] ?? '';
-
-            $employee = Employee::updateOrCreate(
-                ['employee_id' => $pin],
-                [
-                    'first_name'       => $firstName ?: 'Employee',
-                    'last_name'        => $lastName ?: $pin,
-                    'card'             => $card ?: null,
-                    'source_device_sn' => $sn,
-                    'active'           => $enabled === '1',
-                    'employee_status'  => 'active',
-                ]
-            );
-
-            Log::debug('✅ Employee synced', [
-                'pin'         => $pin,
-                'name'        => $name,
-                'employee_id' => $employee->id,
-            ]);
-
+            $this->syncEmployeeFromDevice($pin, $name, $card, $device, $enabled === '1');
             $count++;
         }
 
-        // Update device user count
-        $device = Device::where('serial_number', $sn)->first();
-        if ($device) {
-            $device->update(['user_count' => $count]);
-
-            // Mark sync as complete
-            Cache::put("device_user_sync_{$device->id}", true, now()->addHours(6));
-
-            // Log successful sync
-            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "Synced {$count} users from device");
-        }
-
-        Log::info('✅ USERINFO sync complete', ['sn' => $sn, 'users' => $count]);
+        $this->updateDeviceUserCount($device);
         return $count;
     }
 
     /**
-     * Process operation log from device
+     * Process OPERLOG (includes USER data)
      */
     private function processOperationLog(Device $device, string $body): void
     {
-        Log::info("📋 ZK ADMS OPERLOG {$device->serial_number}: " . substr($body, 0, 200));
-        $this->writeSyncLog($device, 'operation', 0, 'success', null, 'Operation log received');
+        $lines     = preg_split("/\r\n|\n|\r/", trim($body));
+        $userCount = 0;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+
+            // Parse USER lines from OPERLOG
+            if (strpos($line, 'USER') === 0) {
+                if ($this->parseUserLine($line, $pin, $name, $card, $pri)) {
+                    $this->syncEmployeeFromDevice($pin, $name, $card, $device, true);
+                    $userCount++;
+                }
+            }
+        }
+
+        if ($userCount > 0) {
+            $this->updateDeviceUserCount($device);
+        }
+
+        $this->writeSyncLog($device, 'oplog', 0, 'success', null, 'OPERLOG processed');
     }
 
     /**
-     * Write sync log entry
+     * Parse USER line from OPERLOG
+     * Format: USER PIN=1 Name=taiwo Pri=14 Passwd= Card= Grp=1
+     */
+    private function parseUserLine(string $line, &$pin, &$name, &$card, &$pri): bool
+    {
+        // Extract PIN
+        if (! preg_match('/PIN=(\d+)/i', $line, $matches)) {
+            return false;
+        }
+        $pin = $matches[1];
+
+        // Extract Name
+        if (preg_match('/Name=([^\s]+)/i', $line, $matches)) {
+            $name = $matches[1];
+        } else {
+            $name = '';
+        }
+
+        // Extract Card
+        if (preg_match('/Card=([^\s]+)/i', $line, $matches)) {
+            $card = $matches[1];
+        } else {
+            $card = null;
+        }
+
+        // Extract Pri
+        if (preg_match('/Pri=(\d+)/i', $line, $matches)) {
+            $pri = $matches[1];
+        } else {
+            $pri = '0';
+        }
+
+        return true;
+    }
+
+    /**
+     * Find or create employee
+     */
+    private function findOrCreateEmployee(string $pin, Device $device): Employee
+    {
+        $employee = Employee::where('employee_id', $pin)->first();
+
+        if ($employee) {
+            // Update device association
+            $employee->update(['source_device_sn' => $device->serial_number]);
+            return $employee;
+        }
+
+        // Create new
+        return Employee::create([
+            'employee_id'      => $pin,
+            'first_name'       => 'PIN',
+            'last_name'        => $pin,
+            'source_device_sn' => $device->serial_number,
+            'active'           => true,
+            'employee_status'  => 'active',
+            'app_status'       => true,
+        ]);
+    }
+
+    /**
+     * Sync employee data from device
+     */
+    private function syncEmployeeFromDevice(string $pin, string $name, ?string $card, Device $device, bool $active): Employee
+    {
+        $nameParts = explode(' ', trim($name), 2);
+        $firstName = $nameParts[0] ?? '';
+        $lastName  = $nameParts[1] ?? '';
+
+        $employee = Employee::where('employee_id', $pin)->first();
+
+        if ($employee) {
+            // Update existing
+            $employee->update([
+                'source_device_sn' => $device->serial_number,
+                'card'             => $card ?: $employee->card,
+                'active'           => $active,
+            ]);
+
+            // Update name only if currently empty/generic
+            if (empty($employee->first_name) || $employee->first_name === 'PIN') {
+                $employee->update([
+                    'first_name' => $firstName ?: 'Employee',
+                    'last_name'  => $lastName ?: $pin,
+                ]);
+            }
+
+            Log::info('✅ Employee updated', ['pin' => $pin, 'name' => $employee->full_name]);
+        } else {
+            // Create new
+            $employee = Employee::create([
+                'employee_id'      => $pin,
+                'first_name'       => $firstName ?: 'Employee',
+                'last_name'        => $lastName ?: $pin,
+                'card'             => $card,
+                'source_device_sn' => $device->serial_number,
+                'active'           => $active,
+                'employee_status'  => 'active',
+                'app_status'       => true,
+            ]);
+
+            Log::info('🆕 Employee created', ['pin' => $pin, 'name' => $name]);
+        }
+
+        return $employee;
+    }
+
+    /**
+     * Update device user count
+     */
+    private function updateDeviceUserCount(Device $device): void
+    {
+        $userCount = Employee::where('source_device_sn', $device->serial_number)
+            ->distinct()
+            ->count('id');
+
+        $device->update(['user_count' => $userCount]);
+
+        Log::info('📊 Device user count updated', ['sn' => $device->serial_number, 'count' => $userCount]);
+    }
+
+    /**
+     * Write sync log
      */
     private function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
     {
+        $typeMap = [
+            'attendance' => 'att',
+            'heartbeat'  => 'hb',
+            'user_sync'  => 'usr',
+            'oplog'      => 'op',
+            'upload'     => 'up',
+        ];
+
+        $shortType = $typeMap[$type] ?? substr($type, 0, 10);
+
         $now = now();
         DeviceSyncLog::create([
             'device_sn'  => $device->serial_number,
             'device_id'  => $device->id,
-            'type'       => $type,
+            'type'       => $shortType,
             'records'    => $records,
             'status'     => $status,
             'duration'   => $duration,
@@ -439,17 +499,57 @@ class ADMSController extends Controller
         ]);
     }
 
-   
+    /**
+     * GET /iclock/getrequest — Device polls for commands
+     */
+    public function getRequest(Request $request)
+    {
+        try {
+            $sn = $request->query('SN');
+            Log::info('📥 getrequest', ['sn' => $sn]);
+
+            if (! $sn) {
+                return response('ERROR', 400)->header('Content-Type', 'text/plain');
+            }
+
+            $device = Device::where('serial_number', $sn)->first();
+            if ($device) {
+                $device->update(['last_seen' => now(), 'status' => 'online']);
+
+                // Check for pending commands
+                $command = DeviceCommand::where('device_sn', $sn)
+                    ->where('status', 'pending')
+                    ->oldest()
+                    ->first();
+
+                if ($command) {
+                    $command->update(['status' => 'sent', 'sent_at' => now()]);
+                    $cmdStr = "C:{$command->id}:{$command->command}";
+                    if ($command->params) {
+                        $cmdStr .= " {$command->params}";
+                    }
+                    Log::info('📤 Sending command', ['sn' => $sn, 'command' => $cmdStr]);
+                    return response($cmdStr, 200)->header('Content-Type', 'text/plain');
+                }
+            }
+
+            return response("OK", 200)->header('Content-Type', 'text/plain');
+
+        } catch (\Exception $e) {
+            Log::error('❌ getrequest Error: ' . $e->getMessage());
+            return response("ERROR", 500)->header('Content-Type', 'text/plain');
+        }
+    }
 
     /**
-     * POST /iclock/devicecmd — Device sends command execution result
+     * POST /iclock/devicecmd — Command result
      */
     public function deviceCmd(Request $request)
     {
         $sn   = $request->query('SN');
         $body = $request->getContent();
 
-        Log::info('📨 ZK ADMS devicecmd', ['sn' => $sn, 'body' => $body]);
+        Log::info('📨 devicecmd', ['sn' => $sn, 'body' => $body]);
 
         parse_str($body, $params);
 
@@ -460,14 +560,13 @@ class ADMSController extends Controller
                 'response'     => $body,
                 'completed_at' => now(),
             ]);
-            Log::info('✅ Command result saved', ['id' => $params['ID'], 'status' => $params['Return'] ?? 'unknown']);
         }
 
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
 
     /**
-     * POST /iclock/upload — Device uploads user/fingerprint data
+     * POST /iclock/upload — Device uploads data
      */
     public function upload(Request $request)
     {
@@ -475,12 +574,12 @@ class ADMSController extends Controller
         $table = $request->query('table');
         $body  = $request->getContent();
 
-        Log::info('📤 ZK ADMS Upload', ['sn' => $sn, 'table' => $table, 'size' => strlen($body)]);
+        Log::info('📤 Upload', ['sn' => $sn, 'table' => $table, 'size' => strlen($body)]);
 
         if ($table === 'USERINFO' && $sn) {
             $device = Device::where('serial_number', $sn)->first();
             if ($device) {
-                $count = $this->processUserInfo($sn, $body);
+                $count = $this->processUserInfo($device, $body);
                 $this->writeSyncLog($device, 'upload', $count, 'success', null, "Uploaded {$count} users");
             }
         }
@@ -489,143 +588,10 @@ class ADMSController extends Controller
     }
 
     /**
-     * GET /iclock/fdata — Firmware data endpoint
+     * GET /iclock/fdata — Firmware data
      */
     public function fdata(Request $request)
     {
-        Log::info('📦 ZK ADMS fdata', ['query' => $request->query()]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
-    }
-
-    /**
-     * GET /iclock/getrequest — Device polls for pending commands
-     * THIS IS WHERE WE SEND COMMANDS TO PULL DATA!
-     */
-    public function getRequest(Request $request)
-    {
-        try {
-            $sn = $request->query('SN');
-            Log::info('📥 ZK ADMS getrequest', ['sn' => $sn]);
-
-            if (! $sn) {
-                return response('ERROR', 400)->header('Content-Type', 'text/plain');
-            }
-
-            $device = Device::where('serial_number', $sn)->first();
-            if ($device) {
-                $device->update(['last_seen' => now(), 'status' => 'online']);
-
-                // 🔥 CRITICAL: Check if we need to pull user data
-                $needsUserSync = $this->shouldSyncUsers($device);
-
-                if ($needsUserSync) {
-                    $command = $this->queueUserSyncCommand($device);
-                    if ($command) {
-                        Log::info('📤 Sending user sync command', ['sn' => $sn, 'command_id' => $command->id]);
-                        return response("C:{$command->id}:DATA QUERY USERINFO", 200)
-                            ->header('Content-Type', 'text/plain');
-                    }
-                }
-
-                // Check for other pending commands
-                $pendingCommand = DeviceCommand::where('device_sn', $sn)
-                    ->where('status', 'pending')
-                    ->oldest()
-                    ->first();
-
-                if ($pendingCommand) {
-                    $pendingCommand->update(['status' => 'sent', 'sent_at' => now()]);
-                    $cmdStr = "C:{$pendingCommand->id}:{$pendingCommand->command}";
-                    if ($pendingCommand->params) {
-                        $cmdStr .= " {$pendingCommand->params}";
-                    }
-                    Log::info('📤 Sending queued command', ['sn' => $sn, 'command' => $cmdStr]);
-                    return response($cmdStr, 200)->header('Content-Type', 'text/plain');
-                }
-            }
-
-            return response("OK", 200)->header('Content-Type', 'text/plain');
-
-        } catch (\Exception $e) {
-            Log::error('❌ ZK ADMS getrequest Error: ' . $e->getMessage());
-            return response("ERROR", 500)->header('Content-Type', 'text/plain');
-        }
-    }
-
-    /**
-     * Check if device needs user data synchronization
-     */
-    private function shouldSyncUsers(Device $device): bool
-    {
-        $cacheKey = "device_user_sync_{$device->id}";
-
-        // Sync if never synced or last sync was > 1 hour ago
-        if (! Cache::has($cacheKey)) {
-            return true;
-        }
-
-        // Also sync if user count is 0 (likely needs initial sync)
-        if ($device->user_count == 0) {
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Queue a command to pull user info from device
-     */
-    private function queueUserSyncCommand(Device $device): ?DeviceCommand
-    {
-        // Check if there's already a pending user sync command
-        $existing = DeviceCommand::where('device_sn', $device->serial_number)
-            ->where('command', 'DATA QUERY USERINFO')
-            ->where('status', 'pending')
-            ->exists();
-
-        if ($existing) {
-            return null;
-        }
-
-        return DeviceCommand::create([
-            'device_id' => $device->id,
-            'device_sn' => $device->serial_number,
-            'command'   => 'DATA QUERY USERINFO',
-            'params'    => 'ALL',
-            'status'    => 'pending',
-        ]);
-    }
-
-   
-
-    /**
-     * Process fingerprint template data
-     */
-    private function processFingerprintData(Device $device, string $pin, string $fingerData, int $fingerIndex): void
-    {
-        Log::info('🖐️ Processing fingerprint', [
-            'sn'    => $device->serial_number,
-            'pin'   => $pin,
-            'index' => $fingerIndex,
-            'size'  => strlen($fingerData),
-        ]);
-
-        $employee = Employee::where('employee_id', $pin)->first();
-        if (! $employee) {
-            Log::warning('Employee not found for fingerprint', ['pin' => $pin]);
-            return;
-        }
-
-        // Store fingerprint template
-        // Note: You may want to create a fingerprints table
-        // For now, we just log it
-        Log::info('Fingerprint template received', [
-            'employee_id'   => $employee->id,
-            'finger_index'  => $fingerIndex,
-            'template_size' => strlen($fingerData),
-        ]);
-
-        // Update device fp_count
-        $device->increment('fp_count');
     }
 }
