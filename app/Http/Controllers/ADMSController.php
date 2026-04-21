@@ -410,47 +410,7 @@ class ADMSController extends Controller
         ]);
     }
 
-    /**
-     * GET /iclock/getrequest — Device polls for pending commands
-     */
-    public function getRequest(Request $request)
-    {
-        try {
-            $sn = $request->query('SN');
-            Log::info('📥 ZK ADMS getrequest', ['sn' => $sn]);
-
-            if (! $sn) {
-                return response('ERROR', 400)->header('Content-Type', 'text/plain');
-            }
-
-            $device = Device::where('serial_number', $sn)->first();
-            if ($device) {
-                $device->update(['last_seen' => now(), 'status' => 'online']);
-            }
-
-            // Check for pending commands
-            $command = DeviceCommand::where('device_sn', $sn)
-                ->where('status', 'pending')
-                ->oldest()
-                ->first();
-
-            if ($command) {
-                $command->update(['status' => 'sent', 'sent_at' => now()]);
-                $cmdStr = "C:{$command->id}:{$command->command}";
-                if ($command->params) {
-                    $cmdStr .= " {$command->params}";
-                }
-                Log::info('📤 Command sent to device', ['sn' => $sn, 'command' => $cmdStr]);
-                return response($cmdStr, 200)->header('Content-Type', 'text/plain');
-            }
-
-            return response("OK", 200)->header('Content-Type', 'text/plain');
-
-        } catch (\Exception $e) {
-            Log::error('❌ ZK ADMS getrequest Error: ' . $e->getMessage());
-            return response("ERROR", 500)->header('Content-Type', 'text/plain');
-        }
-    }
+   
 
     /**
      * POST /iclock/devicecmd — Device sends command execution result
