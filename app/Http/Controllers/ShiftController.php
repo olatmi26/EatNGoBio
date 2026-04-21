@@ -9,13 +9,13 @@ use App\Services\NotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Inertia\Response;
 
 class ShiftController extends Controller
 {
-    public function __construct(private NotificationService $notifs) {}
+    public function __construct(private NotificationService $notifs)
+    {}
 
-    public function index(): Response
+    public function index()
     {
         $shifts = Shift::orderBy('name')->get()->map(fn($s) => [
             'id'                => $s->id,
@@ -36,11 +36,14 @@ class ShiftController extends Controller
             'type'              => $s->type,
         ]);
 
+        // Get assignments with eager loading
         $assignments = ShiftAssignment::with(['employee', 'shift'])
             ->whereNull('end_date')
             ->orWhere('end_date', '>=', today())
-            ->get()
-            ->map(fn($a) => [
+            ->get();
+
+        $mappedAssignments = $assignments->map(function ($a) {
+            return [
                 'id'            => $a->id,
                 'employeeId'    => $a->employee->employee_id,
                 'employeeName'  => $a->employee->full_name,
@@ -50,11 +53,12 @@ class ShiftController extends Controller
                 'effectiveDate' => $a->effective_date->format('Y-m-d'),
                 'endDate'       => $a->end_date?->format('Y-m-d'),
                 'location'      => $a->location ?? '-',
-            ]);
+            ];
+        })->filter()->values();
 
         return Inertia::render('Shifts/Index', [
             'shifts'      => $shifts,
-            'assignments' => $assignments,
+            'assignments' => $mappedAssignments,
             'employees'   => Employee::where('active', true)
                 ->select('id', 'employee_id', 'first_name', 'last_name', 'department', 'area')
                 ->get()
@@ -76,10 +80,10 @@ class ShiftController extends Controller
         $data = $request->validate([
             'name'               => 'required|string|max:100',
             'code'               => 'required|string|max:10|unique:shifts,code',
-            'start_time'         => 'required|date_format:H:i',
-            'end_time'           => 'required|date_format:H:i',
-            'checkin_start_at'   => 'nullable|date_format:H:i',
-            'checkout_ends_at'   => 'nullable|date_format:H:i',
+            'start_time'         => 'required|date_format:H:i:s', // Accepts "08:00:00"
+            'end_time'           => 'required|date_format:H:i:s', // Accepts "17:00:00"
+            'checkin_start_at'   => 'nullable|date_format:H:i:s',
+            'checkout_ends_at'   => 'nullable|date_format:H:i:s',
             'work_hours'         => 'required|numeric',
             'late_threshold'     => 'required|integer',
             'overtime_threshold' => 'required|integer',
@@ -101,10 +105,11 @@ class ShiftController extends Controller
 
         $data = $request->validate([
             'name'               => 'sometimes|string|max:100',
-            'start_time'         => 'sometimes|date_format:H:i',
-            'end_time'           => 'sometimes|date_format:H:i',
-            'checkin_start_at'   => 'nullable|date_format:H:i',
-            'checkout_ends_at'   => 'nullable|date_format:H:i',
+            'code'               => 'sometimes|string|max:10|unique:shifts,code,' . $id,
+            'start_time'         => 'sometimes|date_format:H:i:s',
+            'end_time'           => 'sometimes|date_format:H:i:s',
+            'checkin_start_at'   => 'nullable|date_format:H:i:s',
+            'checkout_ends_at'   => 'nullable|date_format:H:i:s',
             'work_hours'         => 'sometimes|numeric',
             'late_threshold'     => 'sometimes|integer',
             'overtime_threshold' => 'sometimes|integer',
@@ -150,15 +155,6 @@ class ShiftController extends Controller
 
     /**
      * Bulk auto-assign all employees in the shift's locations.
-     *
-     * POST /shifts/auto-assign
-     * Body: {
-     *   shift_id:           int,
-     *   employee_ids:       int[],       // pre-filtered list sent from the frontend preview
-     *   effective_date:     date,
-     *   end_date:           date|null,
-     *   overwrite_existing: bool,
-     * }
      */
     public function autoAssign(Request $request): RedirectResponse
     {
@@ -181,7 +177,7 @@ class ShiftController extends Controller
         $allowedAreas   = $shift->locations ?? [];
         $validEmployees = Employee::whereIn('id', $employeeIds)
             ->where('active', true)
-            ->when(!empty($allowedAreas), fn($q) => $q->whereIn('area', $allowedAreas))
+            ->when(! empty($allowedAreas), fn($q) => $q->whereIn('area', $allowedAreas))
             ->get();
 
         if ($validEmployees->isEmpty()) {
@@ -197,19 +193,25 @@ class ShiftController extends Controller
             $this->endOpenAssignments($validIds, $effectiveDate);
         }
 
-        // Bulk-insert new assignments (faster than individual creates)
-        $now  = now();
-        $rows = $validEmployees->map(fn($e) => [
-            'employee_id'    => $e->id,
-            'shift_id'       => $shift->id,
-            'location'       => $e->area,
-            'effective_date' => $effectiveDate,
-            'end_date'       => $endDate,
-            'created_at'     => $now,
-            'updated_at'     => $now,
-        ])->toArray();
+        $now           = now();
+        $upsertedCount = 0;
 
-        ShiftAssignment::insert($rows);
+        // Use updateOrCreate to prevent duplicates
+        foreach ($validEmployees as $employee) {
+            ShiftAssignment::updateOrCreate(
+                [
+                    'employee_id'    => $employee->id,
+                    'shift_id'       => $shift->id,
+                    'effective_date' => $effectiveDate,
+                ],
+                [
+                    'location'   => $employee->area,
+                    'end_date'   => $endDate,
+                    'updated_at' => $now,
+                ]
+            );
+            $upsertedCount++;
+        }
 
         // Sync each employee's active shift_id
         Employee::whereIn('id', $validIds)->update(['shift_id' => $shift->id]);
@@ -217,11 +219,31 @@ class ShiftController extends Controller
         // Refresh the shift's employee_count
         $shift->update([
             'employee_count' => ShiftAssignment::where('shift_id', $shift->id)
-                ->where(fn($q) => $q->whereNull('end_date')->orWhere('end_date', '>=', today()))
-                ->count(),
+                ->where(function ($q) {
+                    $q->whereNull('end_date')->orWhere('end_date', '>=', today());
+                })
+                ->distinct('employee_id')
+                ->count('employee_id'),
         ]);
+        $this->refreshAllShiftCounts();
 
-        return back()->with('success', "Auto-assigned {$validEmployees->count()} employees to {$shift->name}.");
+        return back()->with('success', "Assigned {$upsertedCount} employees to {$shift->name}.");
+    }
+
+    private function refreshAllShiftCounts(): void
+    {
+        $shifts = Shift::all();
+
+        foreach ($shifts as $shift) {
+            $shift->update([
+                'employee_count' => ShiftAssignment::where('shift_id', $shift->id)
+                    ->where(function ($q) {
+                        $q->whereNull('end_date')->orWhere('end_date', '>=', today());
+                    })
+                    ->distinct('employee_id')
+                    ->count('employee_id'),
+            ]);
+        }
     }
 
     /**

@@ -141,3 +141,12 @@ Route::middleware(['auth'])->group(function () {
     // Logout
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 });
+
+
+Route::get('/test-pusher', function () {
+    event(new \App\Events\DeviceStatusChanged(
+        \App\Models\Device::first(),
+        'online'
+    ));
+    return 'Event fired!';
+});

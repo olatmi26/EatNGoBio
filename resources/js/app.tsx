@@ -7,8 +7,6 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './Components/base/Toast';
 
 // Resolve page components with graceful Error page fallback.
-// Using replaceState before loading the error component ensures the browser
-// back-button returns to the last working page rather than looping on the error.
 const pages = import.meta.glob('./Pages/**/*.tsx');
 
 async function resolveWithErrorFallback(name: string) {

@@ -10,6 +10,8 @@ use App\Models\PendingDevice;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Events\DeviceStatusChanged;
+use App\Events\AttendanceRecorded;
 
 class ADMSController extends Controller
 {
@@ -21,14 +23,7 @@ class ADMSController extends Controller
     {
         try {
             $sn = $request->query('SN') ?? $request->input('SN');
-
-            // Log the incoming request
-            Log::info('ZK ADMS cdata', [
-                'method'  => $request->method(),
-                'sn'      => $sn,
-                'ip'      => $request->ip(),
-                'options' => $request->query('options'),
-            ]);
+            Log::info('ZK ADMS cdata', ['method' => $request->method(), 'sn' => $sn, 'ip' => $request->ip()]);
 
             if (! $sn) {
                 return response('ERROR: Missing SN', 400)->header('Content-Type', 'text/plain');
@@ -39,18 +34,16 @@ class ADMSController extends Controller
             $model    = $request->query('Model') ?? $request->input('Model') ?? 'ZKTeco';
             $options  = $request->query('options') ?? $request->input('options');
 
-            // Check if device exists
             $device = Device::where('serial_number', $sn)->first();
 
             if (! $device) {
-                // Save to pending devices
+                // Save to pending
                 $pending                 = PendingDevice::firstOrNew(['serial_number' => $sn]);
                 $pending->ip_address     = $ip;
                 $pending->firmware       = $firmware;
                 $pending->model          = $model;
                 $pending->last_heartbeat = now();
                 $pending->request_count  = ($pending->request_count ?? 0) + 1;
-
                 if (! $pending->exists) {
                     $pending->status         = 'pending';
                     $pending->first_seen     = now();
@@ -59,82 +52,110 @@ class ADMSController extends Controller
                 $pending->save();
 
                 Log::info("ZK ADMS: Unknown device {$sn} saved as pending");
-
-                // Return handshake response
-                if ($options === 'all') {
-                    $response = implode("\r\n", [
-                        "GET OPTION FROM: {$sn}",
-                        "Stamp=9999",
-                        "OpStamp=9999",
-                        "ErrorDelay=30",
-                        "Delay=10",
-                        "TransTimes=00:00;14:05",
-                        "TransInterval=1",
-                        "TransFlag=TransData AttLog OpLog EnrollUser ChkWork",
-                        "Realtime=1",
-                        "Encrypt=None",
-                        "ServerVer=2.4.1",
-                        "PushProtVer=2.4.1",
-                        "PushOptionsFlag=1",
-                        "TimeZone=Etc/GMT-1",
-                        "ATTLOGStamp=None",
-                        "OPERLOGStamp=9999",
-                        "ATTPHOTOStamp=None",
-                        "",
-                    ]);
-                    return response($response, 200)->header('Content-Type', 'text/plain');
-                }
-
-                return response("OK", 200)->header('Content-Type', 'text/plain');
+                return response("GET OPTION FROM: {$sn}\r\nStamp=9999\r\nOpStamp=9999\r\nErrorDelay=30\r\nDelay=10\r\nTransFlag=TransData AttLog OpLog EnrollUser ChkWork\r\nRealtime=1\r\nServerVer=2.4.1\r\n\r\n", 200)
+                    ->header('Content-Type', 'text/plain');
             }
 
-            // Device exists - update last seen
+            // Update device status
             $device->update([
                 'last_seen'  => now(),
                 'ip_address' => $ip,
                 'firmware'   => $firmware,
                 'status'     => 'online',
             ]);
+            event(new DeviceStatusChanged($device, 'online'));
 
-            Log::info("ZK ADMS: Device {$sn} online");
 
-            if ($request->isMethod('GET')) {
-                if ($options === 'all') {
-                    $response = implode("\r\n", [
-                        "GET OPTION FROM: {$sn}",
-                        "Stamp=9999",
-                        "OpStamp=9999",
-                        "ErrorDelay=30",
-                        "Delay={$device->heartbeat_interval}",
-                        "TransTimes=00:00;14:05",
-                        "TransInterval=1",
-                        "TransFlag=TransData AttLog OpLog EnrollUser ChkWork",
-                        "Realtime=1",
-                        "Encrypt=None",
-                        "ServerVer=2.4.1",
-                        "PushProtVer=2.4.1",
-                        "PushOptionsFlag=1",
-                        "TimeZone=Etc/GMT-1",
-                        "ATTLOGStamp=None",
-                        "OPERLOGStamp=9999",
-                        "ATTPHOTOStamp=None",
-                        "",
-                    ]);
-                    return response($response, 200)->header('Content-Type', 'text/plain');
+            // Handle POST data (attendance logs)
+            if ($request->isMethod('POST')) {
+                $table   = $request->query('table') ?? $request->input('table');
+                $rawBody = $request->getContent();
+
+                Log::info("ZK ADMS POST", ['sn' => $sn, 'table' => $table, 'body_preview' => substr($rawBody, 0, 500)]);
+
+                if ($table === 'ATTLOG') {
+                    $count = $this->processAttendanceLogs($device, $rawBody);
+                    Log::info("ZK ADMS ATTLOG processed", ['sn' => $sn, 'records' => $count]);
+                    return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
                 }
-                return response("OK", 200)->header('Content-Type', 'text/plain');
+
+                if ($table === 'USERINFO') {
+                    $count = $this->processUserInfo($sn, $rawBody);
+                    Log::info("ZK ADMS USERINFO processed", ['sn' => $sn, 'records' => $count]);
+                    return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
+                }
+            }
+
+            // GET request - Handshake
+            if ($options === 'all') {
+                $response = implode("\r\n", [
+                    "GET OPTION FROM: {$sn}",
+                    "Stamp=9999", "OpStamp=9999", "ErrorDelay=30", "Delay={$device->heartbeat_interval}",
+                    "TransTimes=00:00;14:05", "TransInterval=1", "TransFlag=TransData AttLog OpLog EnrollUser ChkWork",
+                    "Realtime=1", "Encrypt=None", "ServerVer=2.4.1", "PushProtVer=2.4.1", "PushOptionsFlag=1",
+                    "TimeZone=Etc/GMT-1", "ATTLOGStamp=None", "OPERLOGStamp=9999", "ATTPHOTOStamp=None", "",
+                ]);
+                return response($response, 200)->header('Content-Type', 'text/plain');
             }
 
             return response("OK", 200)->header('Content-Type', 'text/plain');
-
         } catch (\Exception $e) {
-            Log::error('ZK ADMS Error: ' . $e->getMessage(), [
-                'file'  => $e->getFile(),
-                'line'  => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-            ]);
+            Log::error('ZK ADMS Error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response("ERROR", 500)->header('Content-Type', 'text/plain');
         }
+    }
+
+    private function processAttendanceLogs(Device $device, string $body): int
+    {
+        $lines = array_filter(explode("\n", trim($body)));
+        $saved = 0;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (! $line) {
+                continue;
+            }
+
+            $parts = preg_split('/[\t ]+/', $line);
+            if (count($parts) < 3) {
+                continue;
+            }
+
+            $pin      = $parts[0];
+            $dateTime = trim(($parts[1] ?? '') . ' ' . ($parts[2] ?? ''));
+            $status   = (int) ($parts[3] ?? 0);
+            $verify   = (int) ($parts[4] ?? 1);
+            $workCode = $parts[5] ?? '0';
+
+            try {
+                $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
+            } catch (\Exception $e) {
+                continue;
+            }
+
+            $exists = AttendanceLog::where('device_sn', $device->serial_number)
+                ->where('employee_pin', $pin)
+                ->where('punch_time', $punchTime)
+                ->exists();
+
+            if (! $exists) {
+                $log= AttendanceLog::create([
+                    'device_id'     => $device->id,
+                    'device_sn'     => $device->serial_number,
+                    'employee_pin'  => $pin,
+                    'punch_time'    => $punchTime,
+                    'punch_type'    => $status,
+                    'verify_type'   => $verify,
+                    'work_code'     => $workCode,
+                    'raw_line_data' => $line,
+                ]);
+                event(new AttendanceRecorded($log));
+                $saved++;
+            }
+        }
+       
+        return $saved;
+
     }
 
     public function getRequest(Request $request)
@@ -172,7 +193,7 @@ class ADMSController extends Controller
         // Efficiently parse parameters and update only if ID present
         parse_str($body, $params);
 
-        if (!empty($params['ID'])) {
+        if (! empty($params['ID'])) {
             DeviceCommand::where('id', $params['ID'])->update([
                 'status'       => (isset($params['Return']) && $params['Return'] === '0') ? 'success' : 'failed',
                 'return_code'  => $params['Return'] ?? null,
@@ -215,68 +236,6 @@ class ADMSController extends Controller
         Log::info('ZK ADMS fdata', ['query' => $request->query()]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
-
-    // =========================================================================
-    // Private Helpers
-    // =========================================================================
-
-    public function processAttendanceLogs(Device $device, string $body): int
-    {
-        $lines = preg_split("/\r\n|\n|\r/", trim($body));
-        $saved = 0;
-        $deviceSn = $device->serial_number;
-        $deviceId = $device->id;
-        $totalLines = 0;
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-            $totalLines++;
-
-            $parts = preg_split('/[\t ]+/', $line);
-            if (count($parts) < 3) {
-                continue;
-            }
-
-            $pin      = $parts[0];
-            $dateTime = trim(($parts[1] ?? '') . ' ' . ($parts[2] ?? ''));
-            $status   = isset($parts[3]) ? (int) $parts[3] : 0;
-            $verify   = isset($parts[4]) ? (int) $parts[4] : 1;
-            $workCode = $parts[5] ?? '0';
-
-            try {
-                $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
-            } catch (\Exception $e) {
-                Log::warning("ZK ADMS: Bad datetime '{$dateTime}' from {$deviceSn}");
-                continue;
-            }
-
-            // Duplicate check via primary fields, only if required
-            if (!AttendanceLog::where([
-                ['device_sn', '=', $deviceSn],
-                ['employee_pin', '=', $pin],
-                ['punch_time', '=', $punchTime]
-            ])->exists()) {
-                AttendanceLog::create([
-                    'device_id'     => $deviceId,
-                    'device_sn'     => $deviceSn,
-                    'employee_pin'  => $pin,
-                    'punch_time'    => $punchTime,
-                    'punch_type'    => $status,
-                    'verify_type'   => $verify,
-                    'work_code'     => $workCode,
-                    'raw_line_data' => $line,
-                ]);
-                $saved++;
-            }
-        }
-
-        Log::info("ZK ADMS ATTLOG {$deviceSn}: {$totalLines} lines, {$saved} new records");
-        return $saved;
-    }
-
     public function processUserInfo(string $sn, string $body): int
     {
         $lines = preg_split("/\r\n|\n|\r/", trim($body));

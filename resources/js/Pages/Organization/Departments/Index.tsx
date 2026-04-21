@@ -44,10 +44,19 @@ export default function DepartmentsPage() {
   const inputStyle = { background: inputBg, border: `1px solid ${border}`, color: textPrimary };
   const labelStyle = { color: textSecondary, fontSize: '12px', fontWeight: 500, marginBottom: '4px', display: 'block' };
 
+  // Filtering logic
   const filteredDepts = departments.filter(d =>
     d.name.toLowerCase().includes(search.toLowerCase()) ||
     d.code.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Pagination logic for departments to display in the current page
+  const source = search ? filteredDepts : departments;
+  const totalDeptPages = Math.ceil(source.length / DEPT_PAGE_SIZE);
+  const paginatedDepts = source.slice((deptPage - 1) * DEPT_PAGE_SIZE, deptPage * DEPT_PAGE_SIZE);
+
+  // Always use those for displayed rows
+  const displayedDepts = paginatedDepts;
 
   const openAdd = () => { setForm({ code: '', name: '', superior: '', manager: '' }); setEditItem(null); setShowModal(true); };
   const openEdit = (d: Department) => { setForm({ code: d.code, name: d.name, superior: d.superior, manager: d.manager }); setEditItem(d); setShowModal(true); };
@@ -71,7 +80,8 @@ export default function DepartmentsPage() {
   };
 
   const toggleSelect = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  const toggleAll = () => setSelected(prev => prev.length === filtered.length ? [] : filtered.map(d => d.id));
+  // Use displayedDepts for the current page for bulk selection
+  const toggleAll = () => setSelected(prev => prev.length === displayedDepts.length && displayedDepts.length > 0 ? [] : displayedDepts.map(d => d.id));
 
   return (
     <AppLayout title="">
@@ -89,7 +99,7 @@ export default function DepartmentsPage() {
         <div className="flex items-center gap-3 mb-4">
           <div className="relative flex-1 max-w-sm">
             <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: textSecondary }}></i>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search departments..." className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none" style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }} />
+            <input value={search} onChange={(e) => { setSearch(e.target.value); setDeptPage(1); }} placeholder="Search departments..." className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none" style={{ background: cardBg, border: `1px solid ${border}`, color: textPrimary }} />
           </div>
           {selected.length > 0 && (
             <button onClick={() => { selected.forEach(id => handleDelete(id)); setSelected([]); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium cursor-pointer whitespace-nowrap" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
@@ -103,7 +113,12 @@ export default function DepartmentsPage() {
             <thead>
               <tr style={{ borderBottom: `1px solid ${border}` }}>
                 <th className="px-4 py-3 w-10">
-                  <input type="checkbox" checked={selected.length === filtered.length && filtered.length > 0} onChange={toggleAll} className="cursor-pointer" />
+                  <input
+                    type="checkbox"
+                    checked={displayedDepts.length > 0 && selected.length === displayedDepts.length}
+                    onChange={toggleAll}
+                    className="cursor-pointer"
+                  />
                 </th>
                 {['Department Code', 'Department Name', 'Superior', 'Employee Qty.', 'Resigned Qty.', 'Department Manager', ''].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap" style={{ color: textSecondary }}>{h}</th>
@@ -111,7 +126,7 @@ export default function DepartmentsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((d) => (
+              {displayedDepts.map((d) => (
                 <tr key={d.id} style={{ borderBottom: `1px solid ${border}` }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isDark ? '#374151' : '#f9fafb'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'; }}
@@ -147,7 +162,7 @@ export default function DepartmentsPage() {
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && (
+          {displayedDepts.length === 0 && (
             <div className="py-16 text-center" style={{ color: textSecondary }}>
               <i className="ri-building-2-line text-4xl mb-3 block"></i>
               <p className="text-sm">No departments found</p>
@@ -191,40 +206,37 @@ export default function DepartmentsPage() {
 
 
       {/* Pagination */}
-      {(() => {
-        const source = search ? filteredDepts : departments;
-        const totalDeptPages = Math.ceil(source.length / DEPT_PAGE_SIZE);
-        if (totalDeptPages <= 1) return null;
-        return (
-          <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: `1px solid ${border}` }}>
-            <p className="text-xs" style={{ color: textSecondary }}>
-              Showing {(deptPage - 1) * DEPT_PAGE_SIZE + 1}–{Math.min(deptPage * DEPT_PAGE_SIZE, source.length)} of {source.length}
-            </p>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setDeptPage(p => Math.max(1, p - 1))} disabled={deptPage === 1}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-xs cursor-pointer transition-colors"
-                style={{ background: deptPage === 1 ? 'transparent' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === 1 ? textSecondary : textPrimary, opacity: deptPage === 1 ? 0.4 : 1 }}>
-                <i className="ri-arrow-left-s-line"></i>
-              </button>
-              {Array.from({ length: Math.min(5, totalDeptPages) }, (_, i) => {
-                const p = totalDeptPages <= 5 ? i + 1 : Math.max(1, Math.min(totalDeptPages - 4, deptPage - 2)) + i;
-                return (
-                  <button key={p} onClick={() => setDeptPage(p)}
-                    className="w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium cursor-pointer"
-                    style={{ background: deptPage === p ? '#16a34a' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === p ? '#fff' : textPrimary }}>
-                    {p}
-                  </button>
-                );
-              })}
-              <button onClick={() => setDeptPage(p => Math.min(totalDeptPages, p + 1))} disabled={deptPage === totalDeptPages}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-xs cursor-pointer transition-colors"
-                style={{ background: deptPage === totalDeptPages ? 'transparent' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === totalDeptPages ? textSecondary : textPrimary, opacity: deptPage === totalDeptPages ? 0.4 : 1 }}>
-                <i className="ri-arrow-right-s-line"></i>
-              </button>
-            </div>
+      {totalDeptPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: `1px solid ${border}` }}>
+          <p className="text-xs" style={{ color: textSecondary }}>
+            Showing {(deptPage - 1) * DEPT_PAGE_SIZE + 1}–{Math.min(deptPage * DEPT_PAGE_SIZE, source.length)} of {source.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setDeptPage(p => Math.max(1, p - 1))} disabled={deptPage === 1}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-xs cursor-pointer transition-colors"
+              style={{ background: deptPage === 1 ? 'transparent' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === 1 ? textSecondary : textPrimary, opacity: deptPage === 1 ? 0.4 : 1 }}>
+              <i className="ri-arrow-left-s-line"></i>
+            </button>
+            {Array.from({ length: Math.min(5, totalDeptPages) }, (_, i) => {
+              // page logic for pagination display
+              const base = Math.max(1, Math.min(totalDeptPages - 4, deptPage - 2));
+              const p = totalDeptPages <= 5 ? i + 1 : base + i;
+              return (
+                <button key={p} onClick={() => setDeptPage(p)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium cursor-pointer"
+                  style={{ background: deptPage === p ? '#16a34a' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === p ? '#fff' : textPrimary }}>
+                  {p}
+                </button>
+              );
+            })}
+            <button onClick={() => setDeptPage(p => Math.min(totalDeptPages, p + 1))} disabled={deptPage === totalDeptPages}
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-xs cursor-pointer transition-colors"
+              style={{ background: deptPage === totalDeptPages ? 'transparent' : (isDark ? '#374151' : '#f3f4f6'), color: deptPage === totalDeptPages ? textSecondary : textPrimary, opacity: deptPage === totalDeptPages ? 0.4 : 1 }}>
+              <i className="ri-arrow-right-s-line"></i>
+            </button>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => deleteId && handleDelete(deleteId)} title="Delete Department" message="Are you sure you want to delete this department?" confirmLabel="Delete" danger />
     </AppLayout>
