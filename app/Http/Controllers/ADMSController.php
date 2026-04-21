@@ -1,17 +1,17 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Events\AttendanceRecorded;
+use App\Events\DeviceStatusChanged;
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\DeviceCommand;
 use App\Models\DeviceSyncLog;
 use App\Models\Employee;
-use App\Models\PendingDevice;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use App\Events\DeviceStatusChanged;
-use App\Events\AttendanceRecorded;
 
 class ADMSController extends Controller
 {
@@ -37,51 +37,37 @@ class ADMSController extends Controller
             $device = Device::where('serial_number', $sn)->first();
 
             if (! $device) {
-                // Save to pending
-                $pending                 = PendingDevice::firstOrNew(['serial_number' => $sn]);
-                $pending->ip_address     = $ip;
-                $pending->firmware       = $firmware;
-                $pending->model          = $model;
-                $pending->last_heartbeat = now();
-                $pending->request_count  = ($pending->request_count ?? 0) + 1;
-                if (! $pending->exists) {
-                    $pending->status         = 'pending';
-                    $pending->first_seen     = now();
-                    $pending->suggested_name = $model . ' - ' . substr($sn, -6);
-                }
-                $pending->save();
-
-                Log::info("ZK ADMS: Unknown device {$sn} saved as pending");
-                return response("GET OPTION FROM: {$sn}\r\nStamp=9999\r\nOpStamp=9999\r\nErrorDelay=30\r\nDelay=10\r\nTransFlag=TransData AttLog OpLog EnrollUser ChkWork\r\nRealtime=1\r\nServerVer=2.4.1\r\n\r\n", 200)
-                    ->header('Content-Type', 'text/plain');
+                // Save to pending...
+                return response("GET OPTION FROM: {$sn}...", 200)->header('Content-Type', 'text/plain');
             }
 
-            // Update device status
+            // Check if status actually changed before firing event
+            $wasOnline = $device->status === 'online';
+            $isOnline  = true; // Device just pinged, so it's online
+
             $device->update([
                 'last_seen'  => now(),
                 'ip_address' => $ip,
                 'firmware'   => $firmware,
                 'status'     => 'online',
             ]);
-            event(new DeviceStatusChanged($device, 'online'));
 
+            // ONLY fire event if status changed OR throttled (max once per minute per device)
+            $cacheKey = "device_event_{$device->id}";
+            if (! $wasOnline || ! Cache::has($cacheKey)) {
+                event(new DeviceStatusChanged($device, 'online'));
+                Cache::put($cacheKey, true, now()->addMinute());
+                Log::info('📡 DeviceStatusChanged event fired', ['device' => $sn]);
+            }
 
             // Handle POST data (attendance logs)
             if ($request->isMethod('POST')) {
                 $table   = $request->query('table') ?? $request->input('table');
                 $rawBody = $request->getContent();
 
-                Log::info("ZK ADMS POST", ['sn' => $sn, 'table' => $table, 'body_preview' => substr($rawBody, 0, 500)]);
-
                 if ($table === 'ATTLOG') {
                     $count = $this->processAttendanceLogs($device, $rawBody);
                     Log::info("ZK ADMS ATTLOG processed", ['sn' => $sn, 'records' => $count]);
-                    return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
-                }
-
-                if ($table === 'USERINFO') {
-                    $count = $this->processUserInfo($sn, $rawBody);
-                    Log::info("ZK ADMS USERINFO processed", ['sn' => $sn, 'records' => $count]);
                     return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
                 }
             }
@@ -100,7 +86,7 @@ class ADMSController extends Controller
 
             return response("OK", 200)->header('Content-Type', 'text/plain');
         } catch (\Exception $e) {
-            Log::error('ZK ADMS Error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+            Log::error('ZK ADMS Error: ' . $e->getMessage());
             return response("ERROR", 500)->header('Content-Type', 'text/plain');
         }
     }
@@ -139,7 +125,7 @@ class ADMSController extends Controller
                 ->exists();
 
             if (! $exists) {
-                $log= AttendanceLog::create([
+                $log = AttendanceLog::create([
                     'device_id'     => $device->id,
                     'device_sn'     => $device->serial_number,
                     'employee_pin'  => $pin,
@@ -153,7 +139,7 @@ class ADMSController extends Controller
                 $saved++;
             }
         }
-       
+
         return $saved;
 
     }

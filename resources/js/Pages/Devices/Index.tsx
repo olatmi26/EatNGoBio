@@ -375,29 +375,39 @@ export default function DevicesPage() {
     }, []);
     // ========== CLIENT-SIDE FILTERING (Instant) ==========
     const filteredDevices = useMemo(() => {
+        if (!masterDevices.length) return [];
+
         return masterDevices.filter((d) => {
             const matchesSearch =
                 !search ||
                 d.name.toLowerCase().includes(search.toLowerCase()) ||
                 d.sn.toLowerCase().includes(search.toLowerCase()) ||
                 (d.area || "").toLowerCase().includes(search.toLowerCase());
+
             const matchesStatus = !statusFilter || d.status === statusFilter;
+
             return matchesSearch && matchesStatus;
         });
     }, [masterDevices, search, statusFilter]);
 
     // Paginated devices
     const paginatedDevices = useMemo(() => {
+        if (!filteredDevices.length) return [];
         const start = (currentPage - 1) * perPage;
-        return filteredDevices.slice(start, start + perPage);
+        const end = Math.min(start + perPage, filteredDevices.length);
+        return filteredDevices.slice(start, end);
     }, [filteredDevices, currentPage, perPage]);
 
-    const totalPages = Math.ceil(filteredDevices.length / perPage);
+    // Calculate total pages
+    const totalPages = Math.max(1, Math.ceil(filteredDevices.length / perPage));
 
     // Reset to page 1 when filters change
+    // Ensure current page is valid
     useEffect(() => {
-        setCurrentPage(1);
-    }, [search, statusFilter]);
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [totalPages, currentPage]);
 
     // ========== DATA FETCHING (Server sync only) ==========
     const fetchDevices = useCallback(
@@ -445,6 +455,7 @@ export default function DevicesPage() {
     // Debounced search sync to server
     const handleSearchChange = (value: string) => {
         setSearch(value);
+        setCurrentPage(1); // Reset to first page
         if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
         searchTimeoutRef.current = setTimeout(() => {
             fetchDevices({ search: value, page: 1 });
@@ -453,9 +464,10 @@ export default function DevicesPage() {
 
     const handleStatusChange = (value: string) => {
         setStatusFilter(value);
+        setCurrentPage(1); // Reset to first page
         fetchDevices({ status: value, page: 1 });
     };
-
+    
     const handlePerPageChange = (value: number) => {
         setPerPage(value);
         setCurrentPage(1);
