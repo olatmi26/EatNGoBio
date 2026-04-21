@@ -336,13 +336,17 @@ class ADMSController extends Controller
         return $saved;
     }
 
-    /**
-     * Process user info from device
+    
+
+     /**
+     * Handle USERINFO response from device
      */
     public function processUserInfo(string $sn, string $body): int
     {
         $lines = preg_split("/\r\n|\n|\r/", trim($body));
         $count = 0;
+
+        Log::info('👥 Processing USERINFO from device', ['sn' => $sn, 'lines' => count($lines)]);
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -355,29 +359,54 @@ class ADMSController extends Controller
                 continue;
             }
 
-            $pin  = $parts[0];
-            $name = $parts[1] ?? '';
+            $pin       = $parts[0];
+            $name      = $parts[1] ?? '';
+            $password  = $parts[2] ?? '';
+            $card      = $parts[3] ?? '';
+            $group     = $parts[4] ?? '';
+            $timezone  = $parts[5] ?? '';
+            $privilege = $parts[6] ?? '0';
+            $enabled   = $parts[7] ?? '1';
 
             // Parse name into first/last
             $nameParts = explode(' ', trim($name), 2);
             $firstName = $nameParts[0] ?? '';
             $lastName  = $nameParts[1] ?? '';
 
-            Employee::updateOrCreate(
+            $employee = Employee::updateOrCreate(
                 ['employee_id' => $pin],
                 [
                     'first_name'       => $firstName ?: 'Employee',
                     'last_name'        => $lastName ?: $pin,
-                    'card'             => $parts[3] ?? null,
+                    'card'             => $card ?: null,
                     'source_device_sn' => $sn,
-                    'active'           => true,
+                    'active'           => $enabled === '1',
                     'employee_status'  => 'active',
                 ]
             );
+
+            Log::debug('✅ Employee synced', [
+                'pin'         => $pin,
+                'name'        => $name,
+                'employee_id' => $employee->id,
+            ]);
+
             $count++;
         }
 
-        Log::info('👥 USERINFO processed', ['sn' => $sn, 'users' => $count]);
+        // Update device user count
+        $device = Device::where('serial_number', $sn)->first();
+        if ($device) {
+            $device->update(['user_count' => $count]);
+
+            // Mark sync as complete
+            Cache::put("device_user_sync_{$device->id}", true, now()->addHours(6));
+
+            // Log successful sync
+            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "Synced {$count} users from device");
+        }
+
+        Log::info('✅ USERINFO sync complete', ['sn' => $sn, 'users' => $count]);
         return $count;
     }
 
@@ -567,77 +596,7 @@ class ADMSController extends Controller
         ]);
     }
 
-    /**
-     * Handle USERINFO response from device
-     */
-    public function processUserInfo(string $sn, string $body): int
-    {
-        $lines = preg_split("/\r\n|\n|\r/", trim($body));
-        $count = 0;
-
-        Log::info('👥 Processing USERINFO from device', ['sn' => $sn, 'lines' => count($lines)]);
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-
-            $parts = explode("\t", $line);
-            if (count($parts) < 2) {
-                continue;
-            }
-
-            $pin       = $parts[0];
-            $name      = $parts[1] ?? '';
-            $password  = $parts[2] ?? '';
-            $card      = $parts[3] ?? '';
-            $group     = $parts[4] ?? '';
-            $timezone  = $parts[5] ?? '';
-            $privilege = $parts[6] ?? '0';
-            $enabled   = $parts[7] ?? '1';
-
-            // Parse name into first/last
-            $nameParts = explode(' ', trim($name), 2);
-            $firstName = $nameParts[0] ?? '';
-            $lastName  = $nameParts[1] ?? '';
-
-            $employee = Employee::updateOrCreate(
-                ['employee_id' => $pin],
-                [
-                    'first_name'       => $firstName ?: 'Employee',
-                    'last_name'        => $lastName ?: $pin,
-                    'card'             => $card ?: null,
-                    'source_device_sn' => $sn,
-                    'active'           => $enabled === '1',
-                    'employee_status'  => 'active',
-                ]
-            );
-
-            Log::debug('✅ Employee synced', [
-                'pin'         => $pin,
-                'name'        => $name,
-                'employee_id' => $employee->id,
-            ]);
-
-            $count++;
-        }
-
-        // Update device user count
-        $device = Device::where('serial_number', $sn)->first();
-        if ($device) {
-            $device->update(['user_count' => $count]);
-
-            // Mark sync as complete
-            Cache::put("device_user_sync_{$device->id}", true, now()->addHours(6));
-
-            // Log successful sync
-            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "Synced {$count} users from device");
-        }
-
-        Log::info('✅ USERINFO sync complete', ['sn' => $sn, 'users' => $count]);
-        return $count;
-    }
+   
 
     /**
      * Process fingerprint template data
