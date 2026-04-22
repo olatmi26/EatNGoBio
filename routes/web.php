@@ -28,6 +28,11 @@ Route::prefix('iclock')->group(function () {
     Route::get('/fdata', [ADMSController::class, 'fdata']);
 });
 
+
+Route::get('/storage/avatars/{filename}', [App\Http\Controllers\AvatarController::class, 'show'])
+    ->name('avatar.show')
+    ->where('filename', '.*');
+
 // ─── Guest Routes ─────────────────────────────────────────────────────────────
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
