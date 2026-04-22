@@ -70,7 +70,6 @@ class ADMSController extends Controller
                 'face_count' => $device->face_count,
             ]);
 
-           
             $this->fireDeviceStatusEvent($device, $wasOnline);
 
             // Handle POST data
@@ -322,28 +321,49 @@ class ADMSController extends Controller
      */
     private function processOperationLog(Device $device, string $body): void
     {
-        $lines     = preg_split("/\r\n|\n|\r/", trim($body));
+        Log::info("📋 OPERLOG received", ['sn' => $device->serial_number, 'length' => strlen($body)]);
+        
+        $lines = preg_split("/\r\n|\n|\r/", trim($body));
         $userCount = 0;
-
+    
         foreach ($lines as $line) {
             $line = trim($line);
-            if (empty($line)) {
-                continue;
-            }
-
-            // Parse USER lines from OPERLOG
+            if (empty($line)) continue;
+    
+            // Check for USER data
             if (strpos($line, 'USER') === 0) {
-                if ($this->parseUserLine($line, $pin, $name, $card, $pri)) {
+                Log::info("👤 Found USER line", ['line' => substr($line, 0, 100)]);
+                
+                // Parse PIN
+                if (preg_match('/PIN=(\d+)/i', $line, $matches)) {
+                    $pin = $matches[1];
+                    
+                    // Parse Name
+                    $name = '';
+                    if (preg_match('/Name=([^\t\r\n]+)/i', $line, $nameMatches)) {
+                        $name = trim($nameMatches[1]);
+                    }
+                    
+                    // Parse Card
+                    $card = null;
+                    if (preg_match('/Card=([^\t\r\n]*)/i', $line, $cardMatches)) {
+                        $card = trim($cardMatches[1]) ?: null;
+                    }
+                    
+                    Log::info("✅ Parsed USER", ['pin' => $pin, 'name' => $name]);
+                    
+                    // Sync employee
                     $this->syncEmployeeFromDevice($pin, $name, $card, $device, true);
                     $userCount++;
                 }
             }
         }
-
+    
         if ($userCount > 0) {
             $this->updateDeviceUserCount($device);
+            Log::info("📊 Updated user count after OPERLOG", ['count' => $userCount]);
         }
-
+    
         $this->writeSyncLog($device, 'oplog', 0, 'success', null, 'OPERLOG processed');
     }
 
@@ -411,49 +431,6 @@ class ADMSController extends Controller
     /**
      * Sync employee data from device
      */
-    private function syncEmployeeFromDevice(string $pin, string $name, ?string $card, Device $device, bool $active): Employee
-    {
-        $nameParts = explode(' ', trim($name), 2);
-        $firstName = $nameParts[0] ?? '';
-        $lastName  = $nameParts[1] ?? '';
-
-        $employee = Employee::where('employee_id', $pin)->first();
-
-        if ($employee) {
-            // Update existing
-            $employee->update([
-                'source_device_sn' => $device->serial_number,
-                'card'             => $card ?: $employee->card,
-                'active'           => $active,
-            ]);
-
-            // Update name only if currently empty/generic
-            if (empty($employee->first_name) || $employee->first_name === 'PIN') {
-                $employee->update([
-                    'first_name' => $firstName ?: 'Employee',
-                    'last_name'  => $lastName ?: $pin,
-                ]);
-            }
-
-            Log::info('✅ Employee updated', ['pin' => $pin, 'name' => $employee->full_name]);
-        } else {
-            // Create new
-            $employee = Employee::create([
-                'employee_id'      => $pin,
-                'first_name'       => $firstName ?: 'Employee',
-                'last_name'        => $lastName ?: $pin,
-                'card'             => $card,
-                'source_device_sn' => $device->serial_number,
-                'active'           => $active,
-                'employee_status'  => 'active',
-                'app_status'       => true,
-            ]);
-
-            Log::info('🆕 Employee created', ['pin' => $pin, 'name' => $name]);
-        }
-
-        return $employee;
-    }
 
     /**
      * Update device user count
@@ -594,4 +571,46 @@ class ADMSController extends Controller
     {
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
+
+    private function syncEmployeeFromDevice(string $pin, string $name, ?string $card, Device $device, bool $active): Employee
+    {
+        $nameParts = explode(' ', trim($name), 2);
+        $firstName = $nameParts[0] ?? '';
+        $lastName  = $nameParts[1] ?? '';
+
+        $employee = Employee::where('employee_id', $pin)->first();
+
+        if ($employee) {
+            $employee->update([
+                'source_device_sn' => $device->serial_number,
+                'card'             => $card ?: $employee->card,
+                'active'           => $active,
+            ]);
+
+            if (empty($employee->first_name) || $employee->first_name === 'PIN') {
+                $employee->update([
+                    'first_name' => $firstName ?: 'Employee',
+                    'last_name'  => $lastName ?: $pin,
+                ]);
+            }
+
+            Log::info('✅ Employee updated', ['pin' => $pin, 'name' => $employee->full_name]);
+        } else {
+            $employee = Employee::create([
+                'employee_id'      => $pin,
+                'first_name'       => $firstName ?: 'Employee',
+                'last_name'        => $lastName ?: $pin,
+                'card'             => $card,
+                'source_device_sn' => $device->serial_number,
+                'active'           => $active,
+                'employee_status'  => 'active',
+                'app_status'       => true,
+            ]);
+
+            Log::info('🆕 Employee created', ['pin' => $pin, 'name' => $name]);
+        }
+
+        return $employee;
+    }
+
 }

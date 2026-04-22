@@ -18,38 +18,36 @@ class DeviceService
      */
     public function deviceListPaginated(string $search = '', string $status = '', int $perPage = 15): LengthAwarePaginator
     {
+        // Always fetch ALL devices for client-side filtering
         $query = Device::with('location')
-            ->when($search, function ($query, $search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                        ->orWhere('serial_number', 'like', "%{$search}%")
-                        ->orWhere('area', 'like', "%{$search}%")
-                        ->orWhere('ip_address', 'like', "%{$search}%");
-                });
-            })
-            ->when($status, function ($query, $status) {
-                if ($status === 'online') {
-                    $query->where('approved', true)
-                        ->whereNotNull('last_seen')
-                        ->whereRaw('last_seen > DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
-                } elseif ($status === 'offline') {
-                    $query->where('approved', true)
-                        ->where(function ($q) {
-                            $q->whereNull('last_seen')
-                                ->orWhereRaw('last_seen <= DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
-                        });
-                } elseif ($status === 'unregistered') {
-                    $query->where('approved', false);
-                }
-            })
             ->orderBy('name');
 
-        $paginator = $query->paginate($perPage);
+        $allDevices = $query->get()->map(fn($d) => $this->formatDevice($d));
 
-        // Transform the collection
-        $paginator->getCollection()->transform(fn($d) => $this->formatDevice($d));
+        // Apply server-side filters if needed (optional - can be removed)
+        $filtered = $allDevices;
+        if ($search) {
+            $filtered = $filtered->filter(fn($d) =>
+                stripos($d['name'], $search) !== false ||
+                stripos($d['sn'], $search) !== false ||
+                stripos($d['area'], $search) !== false
+            );
+        }
+        if ($status) {
+            $filtered = $filtered->filter(fn($d) => $d['status'] === $status);
+        }
 
-        return $paginator;
+        // Manual pagination
+        $page      = request()->get('page', 1);
+        $paginated = $filtered->forPage($page, $perPage);
+
+        return new LengthAwarePaginator(
+            $paginated->values(),
+            $filtered->count(),
+            $perPage,
+            $page,
+            ['path' => request()->url(), 'query' => request()->query()]
+        );
     }
 
     /**

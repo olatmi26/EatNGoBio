@@ -22,6 +22,15 @@ export default function AppLayout({ title, subtitle, children, actions }: AppLay
     useEffect(() => { setMobileOpen(false); }, [url]);
 
     const pageBg = isDark ? '#0f172a' : '#f8fafc';
+    
+    // Check if screen is mobile
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
     return (
         <div className="min-h-screen transition-colors duration-200" style={{ background: pageBg, fontFamily: "'Inter', sans-serif" }}>
@@ -47,9 +56,11 @@ export default function AppLayout({ title, subtitle, children, actions }: AppLay
 
             <main
                 className="transition-all duration-300 pt-16"
-                style={{ marginLeft: collapsed ? '72px' : '260px' }}
+                style={{ 
+                    marginLeft: isMobile ? 0 : (collapsed ? '72px' : '260px')
+                }}
             >
-                <div className="p-6">
+                <div className="p-3 sm:p-4 md:p-6">
                     {children}
                 </div>
             </main>

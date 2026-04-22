@@ -1,27 +1,27 @@
 {
-  "_AppLayout-B6_jUO4o.js": {
-    "file": "assets/AppLayout-B6_jUO4o.js",
+  "_AppLayout-B5Yt8Wdd.js": {
+    "file": "assets/AppLayout-B5Yt8Wdd.js",
     "name": "AppLayout",
     "imports": [
       "resources/js/app.tsx"
     ]
   },
-  "_ConfirmDialog-pJ0EJ1je.js": {
-    "file": "assets/ConfirmDialog-pJ0EJ1je.js",
+  "_ConfirmDialog-DYyG2fkF.js": {
+    "file": "assets/ConfirmDialog-DYyG2fkF.js",
     "name": "ConfirmDialog",
     "imports": [
       "resources/js/app.tsx"
     ]
   },
-  "_Modal-B78JGKD4.js": {
-    "file": "assets/Modal-B78JGKD4.js",
+  "_Modal-zeZFWdqL.js": {
+    "file": "assets/Modal-zeZFWdqL.js",
     "name": "Modal",
     "imports": [
       "resources/js/app.tsx"
     ]
   },
   "resources/css/app.css": {
-    "file": "assets/app-CLcKPI_L.css",
+    "file": "assets/app-C_2dqcNf.css",
     "src": "resources/css/app.css",
     "isEntry": true,
     "name": "app",
@@ -30,33 +30,33 @@
     ]
   },
   "resources/js/Pages/Analytics/Index.tsx": {
-    "file": "assets/Index-kqBiFfVb.js",
+    "file": "assets/Index-C013sVlE.js",
     "name": "Index",
     "src": "resources/js/Pages/Analytics/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js"
+      "_AppLayout-B5Yt8Wdd.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Attendance/Index.tsx": {
-    "file": "assets/Index-p07GFmsw.js",
+    "file": "assets/Index-D_iafdpA.js",
     "name": "Index",
     "src": "resources/js/Pages/Attendance/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js"
+      "_AppLayout-B5Yt8Wdd.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Auth/Login.tsx": {
-    "file": "assets/Login-C8TLQBlO.js",
+    "file": "assets/Login-_quw5XA4.js",
     "name": "Login",
     "src": "resources/js/Pages/Auth/Login.tsx",
     "isDynamicEntry": true,
@@ -64,17 +64,17 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/Index.tsx": {
-    "file": "assets/Index-1Jjfp_ys.js",
+    "file": "assets/Index-DtZOrKix.js",
     "name": "Index",
     "src": "resources/js/Pages/Dashboard/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
+      "_AppLayout-B5Yt8Wdd.js",
       "resources/js/Pages/Dashboard/components/DeviceStatusGrid.tsx",
       "resources/js/Pages/Dashboard/components/AttendanceChart.tsx",
       "resources/js/Pages/Dashboard/components/LiveFeed.tsx",
@@ -83,11 +83,11 @@
       "resources/js/Pages/Dashboard/components/AlertsWidget.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/AlertsWidget.tsx": {
-    "file": "assets/AlertsWidget-D97avsxB.js",
+    "file": "assets/AlertsWidget-Ds7zUtvv.js",
     "name": "AlertsWidget",
     "src": "resources/js/Pages/Dashboard/components/AlertsWidget.tsx",
     "isDynamicEntry": true,
@@ -95,11 +95,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/AttendanceChart.tsx": {
-    "file": "assets/AttendanceChart-B8kzAi-a.js",
+    "file": "assets/AttendanceChart-RBB7Vk-O.js",
     "name": "AttendanceChart",
     "src": "resources/js/Pages/Dashboard/components/AttendanceChart.tsx",
     "isDynamicEntry": true,
@@ -107,11 +107,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/DeptBreakdown.tsx": {
-    "file": "assets/DeptBreakdown-itXj0_vm.js",
+    "file": "assets/DeptBreakdown-CH74YCUt.js",
     "name": "DeptBreakdown",
     "src": "resources/js/Pages/Dashboard/components/DeptBreakdown.tsx",
     "isDynamicEntry": true,
@@ -119,11 +119,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/DeviceStatusGrid.tsx": {
-    "file": "assets/DeviceStatusGrid-Dp_tEkPi.js",
+    "file": "assets/DeviceStatusGrid-DwYwuI6n.js",
     "name": "DeviceStatusGrid",
     "src": "resources/js/Pages/Dashboard/components/DeviceStatusGrid.tsx",
     "isDynamicEntry": true,
@@ -131,11 +131,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/LiveFeed.tsx": {
-    "file": "assets/LiveFeed-7CukEimB.js",
+    "file": "assets/LiveFeed-pWsuUKfL.js",
     "name": "LiveFeed",
     "src": "resources/js/Pages/Dashboard/components/LiveFeed.tsx",
     "isDynamicEntry": true,
@@ -143,11 +143,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Dashboard/components/WeeklyTrendChart.tsx": {
-    "file": "assets/WeeklyTrendChart-Dn0Snhuh.js",
+    "file": "assets/WeeklyTrendChart-9y0VA9mb.js",
     "name": "WeeklyTrendChart",
     "src": "resources/js/Pages/Dashboard/components/WeeklyTrendChart.tsx",
     "isDynamicEntry": true,
@@ -155,86 +155,86 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Devices/Detail.tsx": {
-    "file": "assets/Detail-CxTCPR5A.js",
+    "file": "assets/Detail-Ijr5HDJq.js",
     "name": "Detail",
     "src": "resources/js/Pages/Devices/Detail.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
+      "_AppLayout-B5Yt8Wdd.js",
       "resources/js/Pages/Devices/components/DeviceCommandCenter.tsx",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Devices/Index.tsx": {
-    "file": "assets/Index-DFJscYjS.js",
+    "file": "assets/Index-CAQhvzlP.js",
     "name": "Index",
     "src": "resources/js/Pages/Devices/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_Modal-B78JGKD4.js",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_AppLayout-B5Yt8Wdd.js",
+      "_Modal-zeZFWdqL.js",
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Devices/components/DeviceCommandCenter.tsx": {
-    "file": "assets/DeviceCommandCenter-B3owYpoM.js",
+    "file": "assets/DeviceCommandCenter-MO2iINMV.js",
     "name": "DeviceCommandCenter",
     "src": "resources/js/Pages/Devices/components/DeviceCommandCenter.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/Detail.tsx": {
-    "file": "assets/Detail-CgzodidG.js",
+    "file": "assets/Detail-DgWy_z9i.js",
     "name": "Detail",
     "src": "resources/js/Pages/Employees/Detail.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
+      "_AppLayout-B5Yt8Wdd.js",
       "resources/js/Pages/Employees/components/AttendanceHeatmap.tsx",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/Index.tsx": {
-    "file": "assets/Index-CQXA8CFZ.js",
+    "file": "assets/Index-CYxMi5E1.js",
     "name": "Index",
     "src": "resources/js/Pages/Employees/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_ConfirmDialog-pJ0EJ1je.js",
+      "_AppLayout-B5Yt8Wdd.js",
+      "_ConfirmDialog-DYyG2fkF.js",
       "resources/js/Pages/Employees/components/EmployeeModal.tsx",
       "resources/js/Pages/Employees/components/TransferModal.tsx",
       "resources/js/Pages/Employees/components/BiometricActionModal.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/components/AttendanceHeatmap.tsx": {
-    "file": "assets/AttendanceHeatmap-DkYuy_xE.js",
+    "file": "assets/AttendanceHeatmap-D5Y4FNY8.js",
     "name": "AttendanceHeatmap",
     "src": "resources/js/Pages/Employees/components/AttendanceHeatmap.tsx",
     "isDynamicEntry": true,
@@ -242,11 +242,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/components/BiometricActionModal.tsx": {
-    "file": "assets/BiometricActionModal-IfKPCt5C.js",
+    "file": "assets/BiometricActionModal-OjbfXpu6.js",
     "name": "BiometricActionModal",
     "src": "resources/js/Pages/Employees/components/BiometricActionModal.tsx",
     "isDynamicEntry": true,
@@ -254,11 +254,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/components/EmployeeModal.tsx": {
-    "file": "assets/EmployeeModal-C3u4SqtC.js",
+    "file": "assets/EmployeeModal-ClMASJVd.js",
     "name": "EmployeeModal",
     "src": "resources/js/Pages/Employees/components/EmployeeModal.tsx",
     "isDynamicEntry": true,
@@ -266,11 +266,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Employees/components/TransferModal.tsx": {
-    "file": "assets/TransferModal-D3-cavTv.js",
+    "file": "assets/TransferModal-3dkbwwkW.js",
     "name": "TransferModal",
     "src": "resources/js/Pages/Employees/components/TransferModal.tsx",
     "isDynamicEntry": true,
@@ -278,11 +278,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Error.tsx": {
-    "file": "assets/Error-BpPCFLNN.js",
+    "file": "assets/Error-BOT40J5U.js",
     "name": "Error",
     "src": "resources/js/Pages/Error.tsx",
     "isDynamicEntry": true,
@@ -290,24 +290,24 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/LiveMonitor/Index.tsx": {
-    "file": "assets/Index-DWgL5llG.js",
+    "file": "assets/Index-C50eaOZr.js",
     "name": "Index",
     "src": "resources/js/Pages/LiveMonitor/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js"
+      "_AppLayout-B5Yt8Wdd.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/NotFound.tsx": {
-    "file": "assets/NotFound-NuhFnMMH.js",
+    "file": "assets/NotFound-a-LcFpDw.js",
     "name": "NotFound",
     "src": "resources/js/Pages/NotFound.tsx",
     "isDynamicEntry": true,
@@ -315,75 +315,75 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Organization/Areas/Index.tsx": {
-    "file": "assets/Index-CgbVyZFs.js",
+    "file": "assets/Index-mqRGJPdm.js",
     "name": "Index",
     "src": "resources/js/Pages/Organization/Areas/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_Modal-B78JGKD4.js",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_AppLayout-B5Yt8Wdd.js",
+      "_Modal-zeZFWdqL.js",
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Organization/Chart/Index.tsx": {
-    "file": "assets/Index-CG1E6OGU.js",
+    "file": "assets/Index-DNhpAy0h.js",
     "name": "Index",
     "src": "resources/js/Pages/Organization/Chart/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js"
+      "_AppLayout-B5Yt8Wdd.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Organization/Departments/Index.tsx": {
-    "file": "assets/Index-BohfUo1w.js",
+    "file": "assets/Index-D8dxbb5r.js",
     "name": "Index",
     "src": "resources/js/Pages/Organization/Departments/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_Modal-B78JGKD4.js",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_AppLayout-B5Yt8Wdd.js",
+      "_Modal-zeZFWdqL.js",
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Organization/Positions/Index.tsx": {
-    "file": "assets/Index-BXOUaogs.js",
+    "file": "assets/Index-BQbs70b_.js",
     "name": "Index",
     "src": "resources/js/Pages/Organization/Positions/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_Modal-B78JGKD4.js",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_AppLayout-B5Yt8Wdd.js",
+      "_Modal-zeZFWdqL.js",
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/Index.tsx": {
-    "file": "assets/Index-CS2XAjDz.js",
+    "file": "assets/Index-YuBJqhKv.js",
     "name": "Index",
     "src": "resources/js/Pages/Reports/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
+      "_AppLayout-B5Yt8Wdd.js",
       "resources/js/Pages/Reports/components/AttendanceSummaryTable.tsx",
       "resources/js/Pages/Reports/components/PayrollTable.tsx",
       "resources/js/Pages/Reports/components/DailyTrendChart.tsx",
@@ -391,11 +391,11 @@
       "resources/js/Pages/Reports/components/LocationBreakdownReport.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/components/AttendanceSummaryTable.tsx": {
-    "file": "assets/AttendanceSummaryTable-Ca_UtUZE.js",
+    "file": "assets/AttendanceSummaryTable-DW3JYevL.js",
     "name": "AttendanceSummaryTable",
     "src": "resources/js/Pages/Reports/components/AttendanceSummaryTable.tsx",
     "isDynamicEntry": true,
@@ -403,11 +403,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/components/DailyTrendChart.tsx": {
-    "file": "assets/DailyTrendChart-Bb0ypsLn.js",
+    "file": "assets/DailyTrendChart-CNtjzcNI.js",
     "name": "DailyTrendChart",
     "src": "resources/js/Pages/Reports/components/DailyTrendChart.tsx",
     "isDynamicEntry": true,
@@ -415,11 +415,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/components/DeptBreakdownReport.tsx": {
-    "file": "assets/DeptBreakdownReport-Qdfb404x.js",
+    "file": "assets/DeptBreakdownReport-BxzeGMFn.js",
     "name": "DeptBreakdownReport",
     "src": "resources/js/Pages/Reports/components/DeptBreakdownReport.tsx",
     "isDynamicEntry": true,
@@ -427,11 +427,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/components/LocationBreakdownReport.tsx": {
-    "file": "assets/LocationBreakdownReport-C_eXRs1A.js",
+    "file": "assets/LocationBreakdownReport-DV8mv25T.js",
     "name": "LocationBreakdownReport",
     "src": "resources/js/Pages/Reports/components/LocationBreakdownReport.tsx",
     "isDynamicEntry": true,
@@ -439,11 +439,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Reports/components/PayrollTable.tsx": {
-    "file": "assets/PayrollTable-B_qXRsT6.js",
+    "file": "assets/PayrollTable-COsqa68G.js",
     "name": "PayrollTable",
     "src": "resources/js/Pages/Reports/components/PayrollTable.tsx",
     "isDynamicEntry": true,
@@ -451,27 +451,27 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Settings/Index.tsx": {
-    "file": "assets/Index-C7AMcdg5.js",
+    "file": "assets/Index-BQx7S0Pf.js",
     "name": "Index",
     "src": "resources/js/Pages/Settings/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
+      "_AppLayout-B5Yt8Wdd.js",
       "resources/js/Pages/Settings/components/UserManagement.tsx",
       "resources/js/Pages/Settings/components/DeviceProvisioning.tsx",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Settings/components/DeviceProvisioning.tsx": {
-    "file": "assets/DeviceProvisioning-DM5Be7yd.js",
+    "file": "assets/DeviceProvisioning-C21B-WkI.js",
     "name": "DeviceProvisioning",
     "src": "resources/js/Pages/Settings/components/DeviceProvisioning.tsx",
     "isDynamicEntry": true,
@@ -479,41 +479,41 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Settings/components/UserManagement.tsx": {
-    "file": "assets/UserManagement-CRm4f8qh.js",
+    "file": "assets/UserManagement--cYKlbi4.js",
     "name": "UserManagement",
     "src": "resources/js/Pages/Settings/components/UserManagement.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_ConfirmDialog-pJ0EJ1je.js"
+      "_ConfirmDialog-DYyG2fkF.js"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Shifts/Index.tsx": {
-    "file": "assets/Index-BIQ1HWAG.js",
+    "file": "assets/Index-BJ9OVgNP.js",
     "name": "Index",
     "src": "resources/js/Pages/Shifts/Index.tsx",
     "isDynamicEntry": true,
     "imports": [
       "resources/js/app.tsx",
-      "_AppLayout-B6_jUO4o.js",
-      "_ConfirmDialog-pJ0EJ1je.js",
+      "_AppLayout-B5Yt8Wdd.js",
+      "_ConfirmDialog-DYyG2fkF.js",
       "resources/js/Pages/Shifts/components/ShiftModal.tsx",
       "resources/js/Pages/Shifts/components/AssignShiftModal.tsx",
       "resources/js/Pages/Shifts/components/AutoAssignModal.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Shifts/components/AssignShiftModal.tsx": {
-    "file": "assets/AssignShiftModal-CWo6oCli.js",
+    "file": "assets/AssignShiftModal-Dp_AVId-.js",
     "name": "AssignShiftModal",
     "src": "resources/js/Pages/Shifts/components/AssignShiftModal.tsx",
     "isDynamicEntry": true,
@@ -521,11 +521,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Shifts/components/AutoAssignModal.tsx": {
-    "file": "assets/AutoAssignModal-s2WApjr0.js",
+    "file": "assets/AutoAssignModal-CZGmF-1P.js",
     "name": "AutoAssignModal",
     "src": "resources/js/Pages/Shifts/components/AutoAssignModal.tsx",
     "isDynamicEntry": true,
@@ -533,11 +533,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/Pages/Shifts/components/ShiftModal.tsx": {
-    "file": "assets/ShiftModal-DjsraO-R.js",
+    "file": "assets/ShiftModal-Hzfb3-MK.js",
     "name": "ShiftModal",
     "src": "resources/js/Pages/Shifts/components/ShiftModal.tsx",
     "isDynamicEntry": true,
@@ -545,11 +545,11 @@
       "resources/js/app.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   },
   "resources/js/app.tsx": {
-    "file": "assets/app-BfP0acsj.js",
+    "file": "assets/app-CQpfD0NQ.js",
     "name": "app",
     "src": "resources/js/app.tsx",
     "isEntry": true,
@@ -595,7 +595,7 @@
       "resources/js/Pages/Shifts/components/ShiftModal.tsx"
     ],
     "css": [
-      "assets/app-CLcKPI_L.css"
+      "assets/app-C_2dqcNf.css"
     ]
   }
 }
