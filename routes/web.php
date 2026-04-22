@@ -43,8 +43,7 @@ Route::middleware('guest')->group(function () {
 Route::middleware(['auth'])->group(function () {
     // Dashboard
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
-
-    // Devices
+    // Devices acrosss all locations
     Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
     Route::post('/devices', [DeviceController::class, 'store'])->name('devices.store');
     Route::get('/devices/{id}', [DeviceController::class, 'show'])->name('devices.show');
