@@ -7,7 +7,6 @@ use App\Services\NotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -55,11 +54,27 @@ class ProfileController extends Controller
             'avatar' => 'required|image|max:2048',
         ]);
 
-        $user =  $request->user();
+        $user = $request->user();
         
         if ($request->hasFile('avatar')) {
-            $path = $request->file('avatar')->store('avatars', 'public');
-            $user->update(['avatar' => '/storage/' . $path]);
+            // Delete old avatar if exists
+            if ($user->avatar && str_contains($user->avatar, '/storage/')) {
+                $oldFile = basename($user->avatar);
+                $oldPath = storage_path('app/public/avatars/' . $oldFile);
+                if (file_exists($oldPath)) {
+                    unlink($oldPath);
+                }
+            }
+            
+            // Generate unique filename
+            $file = $request->file('avatar');
+            $filename = uniqid() . '.' . $file->getClientOriginalExtension();
+            
+            // Store directly in storage/app/public/avatars
+            $file->storeAs('avatars', $filename, 'public');
+            
+            // Update user avatar path
+            $user->update(['avatar' => '/storage/avatars/' . $filename]);
         }
 
         return back()->with('success', 'Profile picture updated.');
