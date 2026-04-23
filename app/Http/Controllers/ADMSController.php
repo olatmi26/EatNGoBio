@@ -355,7 +355,7 @@ class ADMSController extends Controller
     {
         try {
             $sn = $request->query('SN');
-            Log::info('📥 getrequest', ['sn' => $sn]);
+           // Log::info('📥 getrequest', ['sn' => $sn]);
 
             if (! $sn) {
                 return response('ERROR', 400)->header('Content-Type', 'text/plain');

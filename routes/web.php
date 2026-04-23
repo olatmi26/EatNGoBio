@@ -6,6 +6,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\DevicePullController;
 use App\Http\Controllers\EmployeeCompensationController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\LiveMonitorController;
@@ -64,6 +65,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/devices/{id}/pending-commands', [DeviceController::class, 'pendingCommands'])->name('devices.pending-commands');
     Route::get('/devices/{id}/command-history', [DeviceController::class, 'commandHistory'])->name('devices.command-history');
     Route::post('/devices/{id}/retry-failed', [DeviceController::class, 'retryFailed'])->name('devices.retry-failed');
+
+    Route::prefix('devices')->name('devices.')->group(function () {
+        Route::post('/{id}/pull', [DevicePullController::class, 'pullDevice'])->name('pull');
+        Route::get('/{id}/pull-status', [DevicePullController::class, 'pullStatus'])->name('pull-status');
+        Route::post('/area/pull', [DevicePullController::class, 'pullArea'])->name('pull-area');
+        Route::post('/pull/execute', [DevicePullController::class, 'executeNow'])->name('pull-execute');
+    });
 
     // Employees
     Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index');
@@ -164,6 +172,9 @@ Route::middleware(['auth'])->group(function () {
     // Live Monitor
     Route::get('/live-monitor', [LiveMonitorController::class, 'index'])->name('live-monitor.index');
     Route::get('/api/live-monitor/feed', [LiveMonitorController::class, 'feed'])->name('live-monitor.feed');
+    Route::get('/api/live-monitor/devices', [LiveMonitorController::class, 'devices'])->name('live-monitor.devices');
+    Route::get('/api/live-monitor/checked-in', [LiveMonitorController::class, 'checkedIn'])->name('live-monitor.checked-in');
+    Route::get('/api/live-monitor/activity', [LiveMonitorController::class, 'activity'])->name('live-monitor.activity');
 
     // Payroll Management
     Route::get('/payroll', [PayrollController::class, 'index'])->name('payroll.index');

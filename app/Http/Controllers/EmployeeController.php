@@ -7,7 +7,6 @@ use App\Models\Employee;
 use App\Models\Location;
 use App\Models\Position;
 use App\Models\Shift;
-use App\Services\AttendanceService;
 use App\Services\EmployeeSyncService;
 use App\Services\LocationAccessService;
 use App\Services\NotificationService;
@@ -21,7 +20,6 @@ use Inertia\Response;
 class EmployeeController extends Controller
 {
     public function __construct(
-        private AttendanceService $attendance,
         private NotificationService $notifs,
         private EmployeeSyncService $syncService,
         private LocationAccessService $locationAccess

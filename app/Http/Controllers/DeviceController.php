@@ -6,7 +6,6 @@ use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
 use App\Services\DeviceCommandService;
-use App\Services\DeviceOperationService;
 use App\Services\DeviceService;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
@@ -19,7 +18,6 @@ class DeviceController extends Controller
 {
     public function __construct(
         private DeviceService $deviceService,
-        private DeviceOperationService $operationService,
         private DeviceCommandService $commandService,
         private NotificationService $notifs,
     ) {}

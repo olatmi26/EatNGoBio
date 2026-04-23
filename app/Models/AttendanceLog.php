@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
@@ -8,14 +7,23 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AttendanceLog extends Model
 {
     protected $fillable = [
-        'device_id', 'device_sn', 'employee_id', 'employee_pin',
-        'punch_time', 'punch_type', 'verify_type', 'work_code', 'raw_line_data',
+        'device_id',
+        'device_sn',
+        'employee_id',
+        'employee_pin',
+        'punch_time',
+        'punch_type',
+        'verify_type',
+        'work_code',
+        'raw_line_data',
+        'status',
     ];
 
     protected $casts = [
         'punch_time'  => 'datetime',
         'punch_type'  => 'integer',
         'verify_type' => 'integer',
+        'status' => 'string', 
     ];
 
     /**

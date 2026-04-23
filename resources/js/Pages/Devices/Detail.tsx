@@ -69,7 +69,14 @@ const TABS: { key: TabKey; label: string; icon: string }[] = [
 
 const perPageOptions = [10, 15, 25, 50];
 
-const avatarColors = ["#16a34a", "#0891b2", "#7c3aed", "#d97706", "#dc2626", "#db2777"];
+const avatarColors = [
+    "#16a34a",
+    "#0891b2",
+    "#7c3aed",
+    "#d97706",
+    "#dc2626",
+    "#db2777",
+];
 
 const getAvatarColor = (id: string | number): string => {
     const s = String(id || "0");
@@ -83,13 +90,22 @@ const EmployeePagination = ({
     onPageChange,
     textSecondary,
 }: {
-    pagination: { current_page: number; last_page: number; from: number; to: number; total: number };
+    pagination: {
+        current_page: number;
+        last_page: number;
+        from: number;
+        to: number;
+        total: number;
+    };
     onPageChange: (page: number) => void;
     textSecondary: string;
 }) => {
     const pages: number[] = [];
     const maxVisible = 5;
-    let start = Math.max(1, pagination.current_page - Math.floor(maxVisible / 2));
+    let start = Math.max(
+        1,
+        pagination.current_page - Math.floor(maxVisible / 2),
+    );
     let end = Math.min(pagination.last_page, start + maxVisible - 1);
 
     if (end - start + 1 < maxVisible) {
@@ -101,7 +117,8 @@ const EmployeePagination = ({
     return (
         <div className="flex items-center justify-between mt-4 px-2">
             <div className="text-xs" style={{ color: textSecondary }}>
-                Showing {pagination.from} to {pagination.to} of {pagination.total} employees
+                Showing {pagination.from} to {pagination.to} of{" "}
+                {pagination.total} employees
             </div>
             <div className="flex items-center gap-1">
                 <button
@@ -127,8 +144,14 @@ const EmployeePagination = ({
                         onClick={() => onPageChange(page)}
                         className="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium cursor-pointer transition-colors"
                         style={{
-                            background: pagination.current_page === page ? "#16a34a" : "transparent",
-                            color: pagination.current_page === page ? "#fff" : textSecondary,
+                            background:
+                                pagination.current_page === page
+                                    ? "#16a34a"
+                                    : "transparent",
+                            color:
+                                pagination.current_page === page
+                                    ? "#fff"
+                                    : textSecondary,
                         }}
                     >
                         {page}
@@ -171,11 +194,14 @@ export default function DeviceDetailPage() {
     } = props;
 
     const [activeTab, setActiveTab] = useState<TabKey>("overview");
-    const [commands, setCommands] = useState<DeviceCommandItem[]>(initialCommands);
+    const [commands, setCommands] =
+        useState<DeviceCommandItem[]>(initialCommands);
     const [punchSearch, setPunchSearch] = useState("");
 
     // Employee state
-    const [employees, setEmployees] = useState<EmployeeItem[]>(initialConnectedEmployees?.data || []);
+    const [employees, setEmployees] = useState<EmployeeItem[]>(
+        initialConnectedEmployees?.data || [],
+    );
     const [employeesPagination, setEmployeesPagination] = useState({
         current_page: initialConnectedEmployees?.current_page || 1,
         last_page: initialConnectedEmployees?.last_page || 1,
@@ -185,11 +211,17 @@ export default function DeviceDetailPage() {
         to: initialConnectedEmployees?.to || 0,
     });
     const [employeesSummary] = useState<EmployeesSummary>(
-        initialEmployeesSummary || { total: 0, active: 0, probation: 0 }
+        initialEmployeesSummary || { total: 0, active: 0, probation: 0 },
     );
-    const [employeeSearch, setEmployeeSearch] = useState(initialFilters?.search || "");
-    const [employeeStatusFilter, setEmployeeStatusFilter] = useState(initialFilters?.status || "");
-    const [employeePerPage, setEmployeePerPage] = useState(initialFilters?.per_page || 15);
+    const [employeeSearch, setEmployeeSearch] = useState(
+        initialFilters?.search || "",
+    );
+    const [employeeStatusFilter, setEmployeeStatusFilter] = useState(
+        initialFilters?.status || "",
+    );
+    const [employeePerPage, setEmployeePerPage] = useState(
+        initialFilters?.per_page || 15,
+    );
     const [isEmployeesLoading, setIsEmployeesLoading] = useState(false);
 
     const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -197,7 +229,7 @@ export default function DeviceDetailPage() {
     const devicePunches = allPunchLogs.filter(
         (p) =>
             p.employeeName?.toLowerCase().includes(punchSearch.toLowerCase()) ||
-            p.employeeId.includes(punchSearch)
+            p.employeeId.includes(punchSearch),
     );
 
     const bg = isDark ? "#111827" : "#f8fafc";
@@ -211,10 +243,34 @@ export default function DeviceDetailPage() {
         DeviceItem["status"],
         { bg: string; color: string; icon: string; label: string; dot: string }
     > = {
-        online: { bg: "#dcfce7", color: "#16a34a", icon: "ri-wifi-line", label: "Online", dot: "#16a34a" },
-        offline: { bg: "#fee2e2", color: "#dc2626", icon: "ri-wifi-off-line", label: "Offline", dot: "#dc2626" },
-        syncing: { bg: "#fef9c3", color: "#ca8a04", icon: "ri-refresh-line", label: "Syncing", dot: "#ca8a04" },
-        unregistered: { bg: "#f3f4f6", color: "#6b7280", icon: "ri-question-line", label: "Unregistered", dot: "#6b7280" },
+        online: {
+            bg: "#dcfce7",
+            color: "#16a34a",
+            icon: "ri-wifi-line",
+            label: "Online",
+            dot: "#16a34a",
+        },
+        offline: {
+            bg: "#fee2e2",
+            color: "#dc2626",
+            icon: "ri-wifi-off-line",
+            label: "Offline",
+            dot: "#dc2626",
+        },
+        syncing: {
+            bg: "#fef9c3",
+            color: "#ca8a04",
+            icon: "ri-refresh-line",
+            label: "Syncing",
+            dot: "#ca8a04",
+        },
+        unregistered: {
+            bg: "#f3f4f6",
+            color: "#6b7280",
+            icon: "ri-question-line",
+            label: "Unregistered",
+            dot: "#6b7280",
+        },
     };
     const sc = statusConfig[device.status];
 
@@ -249,14 +305,20 @@ export default function DeviceDetailPage() {
     };
 
     const syncStatusBadge = (status: string) => {
-        const map: Record<string, { bg: string; color: string; label: string }> = {
+        const map: Record<
+            string,
+            { bg: string; color: string; label: string }
+        > = {
             success: { bg: "#dcfce7", color: "#16a34a", label: "Success" },
             failed: { bg: "#fee2e2", color: "#dc2626", label: "Failed" },
             partial: { bg: "#fef9c3", color: "#ca8a04", label: "Partial" },
         };
         const s = map[status] || map.success;
         return (
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{ background: s.bg, color: s.color }}>
+            <span
+                className="px-2 py-0.5 rounded-full text-xs font-medium"
+                style={{ background: s.bg, color: s.color }}
+            >
                 {s.label}
             </span>
         );
@@ -266,14 +328,17 @@ export default function DeviceDetailPage() {
         async (params: Record<string, any> = {}) => {
             setIsEmployeesLoading(true);
             try {
-                const response = await axios.get(`/devices/${device.id}/employees`, {
-                    params: {
-                        search: employeeSearch || undefined,
-                        status: employeeStatusFilter || undefined,
-                        per_page: employeePerPage,
-                        ...params,
+                const response = await axios.get(
+                    `/devices/${device.id}/employees`,
+                    {
+                        params: {
+                            search: employeeSearch || undefined,
+                            status: employeeStatusFilter || undefined,
+                            per_page: employeePerPage,
+                            ...params,
+                        },
                     },
-                });
+                );
 
                 setEmployees(response.data.employees.data);
                 setEmployeesPagination({
@@ -291,7 +356,13 @@ export default function DeviceDetailPage() {
                 setIsEmployeesLoading(false);
             }
         },
-        [device.id, employeeSearch, employeeStatusFilter, employeePerPage, showToast]
+        [
+            device.id,
+            employeeSearch,
+            employeeStatusFilter,
+            employeePerPage,
+            showToast,
+        ],
     );
 
     const handleEmployeeSearch = (value: string) => {
@@ -320,6 +391,35 @@ export default function DeviceDetailPage() {
         }
     };
 
+    const handlePullData = async (
+        deviceId: number,
+        types: string[] = ["attendance", "users"],
+    ) => {
+        try {
+            const res = await fetch(`/devices/${deviceId}/pull`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-TOKEN": (
+                        document.querySelector(
+                            'meta[name="csrf-token"]',
+                        ) as HTMLMetaElement
+                    )?.content,
+                },
+                body: JSON.stringify({ types }),
+            });
+
+            const data = await res.json();
+            showToast("success", "Pull Initiated", data.message);
+        } catch (error) {
+            showToast(
+                "error",
+                "Pull Failed",
+                "Could not pull data from device",
+            );
+        }
+    };
+
     return (
         <AppLayout title="">
             <div className="p-6" style={{ background: bg, minHeight: "100vh" }}>
@@ -332,70 +432,180 @@ export default function DeviceDetailPage() {
                     >
                         Devices
                     </button>
-                    <i className="ri-arrow-right-s-line" style={{ color: textSecondary }}></i>
+                    <i
+                        className="ri-arrow-right-s-line"
+                        style={{ color: textSecondary }}
+                    ></i>
                     <span style={{ color: textSecondary }}>{device.name}</span>
                 </div>
 
                 {/* Device header card */}
-                <div className="rounded-2xl p-6 mb-6" style={{ background: cardBg, border: `1px solid ${border}` }}>
+                <div
+                    className="rounded-2xl p-6 mb-6"
+                    style={{
+                        background: cardBg,
+                        border: `1px solid ${border}`,
+                    }}
+                >
                     <div className="flex flex-col lg:flex-row lg:items-center gap-5">
-                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: `${sc.dot}20` }}>
-                            <i className="ri-device-line text-3xl" style={{ color: sc.dot }}></i>
+                        <div
+                            className="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
+                            style={{ background: `${sc.dot}20` }}
+                        >
+                            <i
+                                className="ri-device-line text-3xl"
+                                style={{ color: sc.dot }}
+                            ></i>
                         </div>
                         <div className="flex-1">
                             <div className="flex flex-wrap items-center gap-3 mb-1">
-                                <h1 className="text-xl font-bold" style={{ color: textPrimary }}>
+                                <h1
+                                    className="text-xl font-bold"
+                                    style={{ color: textPrimary }}
+                                >
                                     {device.name}
                                 </h1>
                                 <span
                                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-                                    style={{ background: sc.bg, color: sc.color }}
+                                    style={{
+                                        background: sc.bg,
+                                        color: sc.color,
+                                    }}
                                 >
-                                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: sc.dot }}></span>
+                                    <span
+                                        className="w-1.5 h-1.5 rounded-full animate-pulse"
+                                        style={{ background: sc.dot }}
+                                    ></span>
                                     {sc.label}
                                 </span>
                             </div>
-                            <div className="flex flex-wrap gap-4 text-sm" style={{ color: textSecondary }}>
-                                <span><i className="ri-barcode-line mr-1"></i>{device.sn}</span>
-                                <span><i className="ri-map-pin-line mr-1"></i>{device.area}</span>
-                                <span><i className="ri-global-line mr-1"></i>{device.ip}</span>
-                                <span><i className="ri-time-line mr-1"></i>{device.timezone}</span>
-                                <span><i className="ri-cpu-line mr-1"></i>{device.firmware}</span>
+                            <div
+                                className="flex flex-wrap gap-4 text-sm"
+                                style={{ color: textSecondary }}
+                            >
+                                <span>
+                                    <i className="ri-barcode-line mr-1"></i>
+                                    {device.sn}
+                                </span>
+                                <span>
+                                    <i className="ri-map-pin-line mr-1"></i>
+                                    {device.area}
+                                </span>
+                                <span>
+                                    <i className="ri-global-line mr-1"></i>
+                                    {device.ip}
+                                </span>
+                                <span>
+                                    <i className="ri-time-line mr-1"></i>
+                                    {device.timezone}
+                                </span>
+                                <span>
+                                    <i className="ri-cpu-line mr-1"></i>
+                                    {device.firmware}
+                                </span>
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-3">
                             <button
-                                onClick={() => showToast("info", "Syncing...", `Pulling data from ${device.name}`)}
+                                onClick={() =>
+                                    showToast(
+                                        "info",
+                                        "Syncing...",
+                                        `Pulling data from ${device.name}`,
+                                    )
+                                }
                                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer whitespace-nowrap transition-opacity hover:opacity-80"
-                                style={{ background: "#dcfce7", color: "#16a34a", border: "1px solid #bbf7d0" }}
+                                style={{
+                                    background: "#dcfce7",
+                                    color: "#16a34a",
+                                    border: "1px solid #bbf7d0",
+                                }}
                             >
                                 <i className="ri-refresh-line"></i> Sync Now
                             </button>
                             <button
+                                onClick={() => handlePullData(device.id)}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium"
+                                style={{
+                                    background: "#dcfce7",
+                                    color: "#16a34a",
+                                }}
+                            >
+                                <i className="ri-download-cloud-line"></i> Pull
+                                Data
+                            </button>
+                            <button
                                 onClick={() => setActiveTab("commands")}
                                 className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer whitespace-nowrap transition-opacity hover:opacity-80"
-                                style={{ background: isDark ? "#374151" : "#f3f4f6", color: textPrimary, border: `1px solid ${border}` }}
+                                style={{
+                                    background: isDark ? "#374151" : "#f3f4f6",
+                                    color: textPrimary,
+                                    border: `1px solid ${border}`,
+                                }}
                             >
-                                <i className="ri-terminal-box-line"></i> Commands
+                                <i className="ri-terminal-box-line"></i>{" "}
+                                Commands
                             </button>
                         </div>
                     </div>
 
                     {/* Quick stats */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5" style={{ borderTop: `1px solid ${border}` }}>
+                    <div
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5"
+                        style={{ borderTop: `1px solid ${border}` }}
+                    >
                         {[
-                            { label: "Registered Users", value: device.users, icon: "ri-team-line", color: "#16a34a" },
-                            { label: "Fingerprints", value: device.fp, icon: "ri-fingerprint-line", color: "#0891b2" },
-                            { label: "Face Templates", value: device.face, icon: "ri-user-smile-line", color: "#7c3aed" },
-                            { label: "Heartbeat", value: `${device.heartbeat}s`, icon: "ri-heart-pulse-line", color: "#f59e0b" },
+                            {
+                                label: "Registered Users",
+                                value: device.users,
+                                icon: "ri-team-line",
+                                color: "#16a34a",
+                            },
+                            {
+                                label: "Fingerprints",
+                                value: device.fp,
+                                icon: "ri-fingerprint-line",
+                                color: "#0891b2",
+                            },
+                            {
+                                label: "Face Templates",
+                                value: device.face,
+                                icon: "ri-user-smile-line",
+                                color: "#7c3aed",
+                            },
+                            {
+                                label: "Heartbeat",
+                                value: `${device.heartbeat}s`,
+                                icon: "ri-heart-pulse-line",
+                                color: "#f59e0b",
+                            },
                         ].map((s) => (
-                            <div key={s.label} className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${s.color}15` }}>
-                                    <i className={`${s.icon} text-lg`} style={{ color: s.color }}></i>
+                            <div
+                                key={s.label}
+                                className="flex items-center gap-3"
+                            >
+                                <div
+                                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                                    style={{ background: `${s.color}15` }}
+                                >
+                                    <i
+                                        className={`${s.icon} text-lg`}
+                                        style={{ color: s.color }}
+                                    ></i>
                                 </div>
                                 <div>
-                                    <p className="text-lg font-bold" style={{ color: textPrimary }}>{s.value}</p>
-                                    <p className="text-xs" style={{ color: textSecondary }}>{s.label}</p>
+                                    <p
+                                        className="text-lg font-bold"
+                                        style={{ color: textPrimary }}
+                                    >
+                                        {s.value}
+                                    </p>
+                                    <p
+                                        className="text-xs"
+                                        style={{ color: textSecondary }}
+                                    >
+                                        {s.label}
+                                    </p>
                                 </div>
                             </div>
                         ))}
@@ -403,15 +613,24 @@ export default function DeviceDetailPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-1 mb-5 overflow-x-auto" style={{ borderBottom: `1px solid ${border}` }}>
+                <div
+                    className="flex gap-1 mb-5 overflow-x-auto"
+                    style={{ borderBottom: `1px solid ${border}` }}
+                >
                     {TABS.map((tab) => (
                         <button
                             key={tab.key}
                             onClick={() => setActiveTab(tab.key)}
                             className="flex items-center gap-2 px-4 py-3 text-sm font-medium cursor-pointer whitespace-nowrap transition-colors"
                             style={{
-                                color: activeTab === tab.key ? "#16a34a" : textSecondary,
-                                borderBottom: activeTab === tab.key ? "2px solid #16a34a" : "2px solid transparent",
+                                color:
+                                    activeTab === tab.key
+                                        ? "#16a34a"
+                                        : textSecondary,
+                                borderBottom:
+                                    activeTab === tab.key
+                                        ? "2px solid #16a34a"
+                                        : "2px solid transparent",
                             }}
                         >
                             <i className={tab.icon}></i>
@@ -423,49 +642,168 @@ export default function DeviceDetailPage() {
                 {/* Tab: Overview */}
                 {activeTab === "overview" && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                        <div className="rounded-xl overflow-hidden" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                            <div className="px-5 py-3.5" style={{ borderBottom: `1px solid ${border}` }}>
-                                <h3 className="text-sm font-semibold" style={{ color: textPrimary }}>Device Information</h3>
+                        <div
+                            className="rounded-xl overflow-hidden"
+                            style={{
+                                background: cardBg,
+                                border: `1px solid ${border}`,
+                            }}
+                        >
+                            <div
+                                className="px-5 py-3.5"
+                                style={{ borderBottom: `1px solid ${border}` }}
+                            >
+                                <h3
+                                    className="text-sm font-semibold"
+                                    style={{ color: textPrimary }}
+                                >
+                                    Device Information
+                                </h3>
                             </div>
                             <div className="p-5 space-y-3">
                                 {[
-                                    { label: "Device Name", value: device.name },
-                                    { label: "Serial Number", value: device.sn },
+                                    {
+                                        label: "Device Name",
+                                        value: device.name,
+                                    },
+                                    {
+                                        label: "Serial Number",
+                                        value: device.sn,
+                                    },
                                     { label: "IP Address", value: device.ip },
                                     { label: "Area", value: device.area },
-                                    { label: "Timezone", value: device.timezone },
-                                    { label: "Transfer Mode", value: device.transferMode },
-                                    { label: "Firmware", value: device.firmware },
-                                    { label: "Heartbeat Interval", value: `${device.heartbeat} seconds` },
-                                    { label: "Last Activity", value: device.lastActivity },
+                                    {
+                                        label: "Timezone",
+                                        value: device.timezone,
+                                    },
+                                    {
+                                        label: "Transfer Mode",
+                                        value: device.transferMode,
+                                    },
+                                    {
+                                        label: "Firmware",
+                                        value: device.firmware,
+                                    },
+                                    {
+                                        label: "Heartbeat Interval",
+                                        value: `${device.heartbeat} seconds`,
+                                    },
+                                    {
+                                        label: "Last Activity",
+                                        value: device.lastActivity,
+                                    },
                                 ].map((row) => (
-                                    <div key={row.label} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${border}` }}>
-                                        <span className="text-xs font-medium" style={{ color: textSecondary }}>{row.label}</span>
-                                        <span className="text-sm font-medium" style={{ color: textPrimary }}>{row.value}</span>
+                                    <div
+                                        key={row.label}
+                                        className="flex items-center justify-between py-2"
+                                        style={{
+                                            borderBottom: `1px solid ${border}`,
+                                        }}
+                                    >
+                                        <span
+                                            className="text-xs font-medium"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            {row.label}
+                                        </span>
+                                        <span
+                                            className="text-sm font-medium"
+                                            style={{ color: textPrimary }}
+                                        >
+                                            {row.value}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
                         </div>
-                        <div className="rounded-xl overflow-hidden" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                            <div className="px-5 py-3.5 flex items-center justify-between" style={{ borderBottom: `1px solid ${border}` }}>
-                                <h3 className="text-sm font-semibold" style={{ color: textPrimary }}>Recent Punches</h3>
-                                <button onClick={() => setActiveTab("punches")} className="text-xs cursor-pointer" style={{ color: "#16a34a" }}>View all</button>
+                        <div
+                            className="rounded-xl overflow-hidden"
+                            style={{
+                                background: cardBg,
+                                border: `1px solid ${border}`,
+                            }}
+                        >
+                            <div
+                                className="px-5 py-3.5 flex items-center justify-between"
+                                style={{ borderBottom: `1px solid ${border}` }}
+                            >
+                                <h3
+                                    className="text-sm font-semibold"
+                                    style={{ color: textPrimary }}
+                                >
+                                    Recent Punches
+                                </h3>
+                                <button
+                                    onClick={() => setActiveTab("punches")}
+                                    className="text-xs cursor-pointer"
+                                    style={{ color: "#16a34a" }}
+                                >
+                                    View all
+                                </button>
                             </div>
-                            <div className="divide-y" style={{ borderColor: border }}>
+                            <div
+                                className="divide-y"
+                                style={{ borderColor: border }}
+                            >
                                 {allPunchLogs.slice(0, 8).map((log) => {
                                     const pt = punchTypeIcon(log.punchType);
                                     return (
-                                        <div key={log.id} className="flex items-center gap-3 px-5 py-3">
-                                            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: `${pt.color}15` }}>
-                                                <i className={`${pt.icon} text-sm`} style={{ color: pt.color }}></i>
+                                        <div
+                                            key={log.id}
+                                            className="flex items-center gap-3 px-5 py-3"
+                                        >
+                                            <div
+                                                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                                                style={{
+                                                    background: `${pt.color}15`,
+                                                }}
+                                            >
+                                                <i
+                                                    className={`${pt.icon} text-sm`}
+                                                    style={{ color: pt.color }}
+                                                ></i>
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium truncate" style={{ color: textPrimary }}>{log.employeeName}</p>
-                                                <p className="text-xs" style={{ color: textSecondary }}>{log.department}</p>
+                                                <p
+                                                    className="text-sm font-medium truncate"
+                                                    style={{
+                                                        color: textPrimary,
+                                                    }}
+                                                >
+                                                    {log.employeeName}
+                                                </p>
+                                                <p
+                                                    className="text-xs"
+                                                    style={{
+                                                        color: textSecondary,
+                                                    }}
+                                                >
+                                                    {log.department}
+                                                </p>
                                             </div>
                                             <div className="text-right flex-shrink-0">
-                                                <p className="text-xs font-semibold" style={{ color: verifyModeColor(log.verifyMode) }}>{log.verifyMode}</p>
-                                                <p className="text-xs font-mono" style={{ color: textSecondary }}>{log.timestamp.split(" ")[1]}</p>
+                                                <p
+                                                    className="text-xs font-semibold"
+                                                    style={{
+                                                        color: verifyModeColor(
+                                                            log.verifyMode,
+                                                        ),
+                                                    }}
+                                                >
+                                                    {log.verifyMode}
+                                                </p>
+                                                <p
+                                                    className="text-xs font-mono"
+                                                    style={{
+                                                        color: textSecondary,
+                                                    }}
+                                                >
+                                                    {
+                                                        log.timestamp.split(
+                                                            " ",
+                                                        )[1]
+                                                    }
+                                                </p>
                                             </div>
                                         </div>
                                     );
@@ -477,60 +815,191 @@ export default function DeviceDetailPage() {
 
                 {/* Tab: Punch Logs */}
                 {activeTab === "punches" && (
-                    <div className="rounded-xl overflow-hidden" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                        <div className="px-5 py-3.5 flex items-center justify-between" style={{ borderBottom: `1px solid ${border}` }}>
+                    <div
+                        className="rounded-xl overflow-hidden"
+                        style={{
+                            background: cardBg,
+                            border: `1px solid ${border}`,
+                        }}
+                    >
+                        <div
+                            className="px-5 py-3.5 flex items-center justify-between"
+                            style={{ borderBottom: `1px solid ${border}` }}
+                        >
                             <div>
-                                <h3 className="text-sm font-semibold" style={{ color: textPrimary }}>Punch Logs</h3>
-                                <p className="text-xs mt-0.5" style={{ color: textSecondary }}>{devicePunches.length} records</p>
+                                <h3
+                                    className="text-sm font-semibold"
+                                    style={{ color: textPrimary }}
+                                >
+                                    Punch Logs
+                                </h3>
+                                <p
+                                    className="text-xs mt-0.5"
+                                    style={{ color: textSecondary }}
+                                >
+                                    {devicePunches.length} records
+                                </p>
                             </div>
                             <div className="relative">
-                                <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: textSecondary }}></i>
+                                <i
+                                    className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-xs"
+                                    style={{ color: textSecondary }}
+                                ></i>
                                 <input
                                     value={punchSearch}
-                                    onChange={(e) => setPunchSearch(e.target.value)}
+                                    onChange={(e) =>
+                                        setPunchSearch(e.target.value)
+                                    }
                                     placeholder="Search employee..."
                                     className="pl-8 pr-3 py-2 rounded-lg text-xs outline-none w-48"
-                                    style={{ background: isDark ? "#374151" : "#f9fafb", border: `1px solid ${border}`, color: textPrimary }}
+                                    style={{
+                                        background: isDark
+                                            ? "#374151"
+                                            : "#f9fafb",
+                                        border: `1px solid ${border}`,
+                                        color: textPrimary,
+                                    }}
                                 />
                             </div>
                         </div>
                         <table className="w-full">
                             <thead>
-                                <tr style={{ borderBottom: `1px solid ${border}` }}>
-                                    {["Employee", "ID", "Department", "Timestamp", "Type", "Mode", "Status"].map((h) => (
-                                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap" style={{ color: textSecondary }}>{h}</th>
+                                <tr
+                                    style={{
+                                        borderBottom: `1px solid ${border}`,
+                                    }}
+                                >
+                                    {[
+                                        "Employee",
+                                        "ID",
+                                        "Department",
+                                        "Timestamp",
+                                        "Type",
+                                        "Mode",
+                                        "Status",
+                                    ].map((h) => (
+                                        <th
+                                            key={h}
+                                            className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            {h}
+                                        </th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 {devicePunches.length > 0 ? (
                                     devicePunches.map((log) => {
-                                        const pt = punchTypeIcon(log.punchType || "fingerprint");
-                                        const employeeName = log.employeeName || `PIN ${log.employeeId}`;
+                                        const pt = punchTypeIcon(
+                                            log.punchType || "fingerprint",
+                                        );
+                                        const employeeName =
+                                            log.employeeName ||
+                                            `PIN ${log.employeeId}`;
                                         return (
-                                            <tr key={log.id} style={{ borderBottom: `1px solid ${border}` }}
-                                                onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rowHover; }}
-                                                onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
+                                            <tr
+                                                key={log.id}
+                                                style={{
+                                                    borderBottom: `1px solid ${border}`,
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    (
+                                                        e.currentTarget as HTMLTableRowElement
+                                                    ).style.background =
+                                                        rowHover;
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    (
+                                                        e.currentTarget as HTMLTableRowElement
+                                                    ).style.background =
+                                                        "transparent";
+                                                }}
                                             >
-                                                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap" style={{ color: textPrimary }}>{employeeName}</td>
-                                                <td className="px-4 py-3 text-xs font-mono" style={{ color: textSecondary }}>{log.employeeId || "-"}</td>
-                                                <td className="px-4 py-3 text-xs whitespace-nowrap" style={{ color: textSecondary }}>{log.department || "-"}</td>
-                                                <td className="px-4 py-3 text-xs font-mono whitespace-nowrap" style={{ color: textSecondary }}>{log.timestamp || "-"}</td>
+                                                <td
+                                                    className="px-4 py-3 text-sm font-medium whitespace-nowrap"
+                                                    style={{
+                                                        color: textPrimary,
+                                                    }}
+                                                >
+                                                    {employeeName}
+                                                </td>
+                                                <td
+                                                    className="px-4 py-3 text-xs font-mono"
+                                                    style={{
+                                                        color: textSecondary,
+                                                    }}
+                                                >
+                                                    {log.employeeId || "-"}
+                                                </td>
+                                                <td
+                                                    className="px-4 py-3 text-xs whitespace-nowrap"
+                                                    style={{
+                                                        color: textSecondary,
+                                                    }}
+                                                >
+                                                    {log.department || "-"}
+                                                </td>
+                                                <td
+                                                    className="px-4 py-3 text-xs font-mono whitespace-nowrap"
+                                                    style={{
+                                                        color: textSecondary,
+                                                    }}
+                                                >
+                                                    {log.timestamp || "-"}
+                                                </td>
                                                 <td className="px-4 py-3">
                                                     <span className="inline-flex items-center gap-1 text-xs font-medium">
-                                                        <i className={pt.icon} style={{ color: pt.color }}></i>
-                                                        <span style={{ color: textSecondary }} className="capitalize">{log.punchType || "unknown"}</span>
+                                                        <i
+                                                            className={pt.icon}
+                                                            style={{
+                                                                color: pt.color,
+                                                            }}
+                                                        ></i>
+                                                        <span
+                                                            style={{
+                                                                color: textSecondary,
+                                                            }}
+                                                            className="capitalize"
+                                                        >
+                                                            {log.punchType ||
+                                                                "unknown"}
+                                                        </span>
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3">
-                                                    <span className="text-xs font-semibold" style={{ color: verifyModeColor(log.verifyMode) }}>{log.verifyMode || "Unknown"}</span>
+                                                    <span
+                                                        className="text-xs font-semibold"
+                                                        style={{
+                                                            color: verifyModeColor(
+                                                                log.verifyMode,
+                                                            ),
+                                                        }}
+                                                    >
+                                                        {log.verifyMode ||
+                                                            "Unknown"}
+                                                    </span>
                                                 </td>
                                                 <td className="px-4 py-3">
-                                                    <span className="px-2 py-0.5 rounded-full text-xs font-medium" style={{
-                                                        background: log.status === "success" ? "#dcfce7" : "#fee2e2",
-                                                        color: log.status === "success" ? "#16a34a" : "#dc2626",
-                                                    }}>
-                                                        {log.status === "success" ? "OK" : "Failed"}
+                                                    <span
+                                                        className="px-2 py-0.5 rounded-full text-xs font-medium"
+                                                        style={{
+                                                            background:
+                                                                log.status ===
+                                                                "success"
+                                                                    ? "#dcfce7"
+                                                                    : "#fee2e2",
+                                                            color:
+                                                                log.status ===
+                                                                "success"
+                                                                    ? "#16a34a"
+                                                                    : "#dc2626",
+                                                        }}
+                                                    >
+                                                        {log.status ===
+                                                        "success"
+                                                            ? "OK"
+                                                            : "Failed"}
                                                     </span>
                                                 </td>
                                             </tr>
@@ -538,7 +1007,11 @@ export default function DeviceDetailPage() {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={7} className="py-12 text-center text-sm" style={{ color: textSecondary }}>
+                                        <td
+                                            colSpan={7}
+                                            className="py-12 text-center text-sm"
+                                            style={{ color: textSecondary }}
+                                        >
                                             <i className="ri-fingerprint-line text-3xl mb-2 block"></i>
                                             No punch logs found
                                         </td>
@@ -551,16 +1024,52 @@ export default function DeviceDetailPage() {
 
                 {/* Tab: Sync History */}
                 {activeTab === "sync" && (
-                    <div className="rounded-xl overflow-hidden" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                        <div className="px-5 py-3.5" style={{ borderBottom: `1px solid ${border}` }}>
-                            <h3 className="text-sm font-semibold" style={{ color: textPrimary }}>Sync History</h3>
-                            <p className="text-xs mt-0.5" style={{ color: textSecondary }}>All ADMS communication events</p>
+                    <div
+                        className="rounded-xl overflow-hidden"
+                        style={{
+                            background: cardBg,
+                            border: `1px solid ${border}`,
+                        }}
+                    >
+                        <div
+                            className="px-5 py-3.5"
+                            style={{ borderBottom: `1px solid ${border}` }}
+                        >
+                            <h3
+                                className="text-sm font-semibold"
+                                style={{ color: textPrimary }}
+                            >
+                                Sync History
+                            </h3>
+                            <p
+                                className="text-xs mt-0.5"
+                                style={{ color: textSecondary }}
+                            >
+                                All ADMS communication events
+                            </p>
                         </div>
                         <table className="w-full">
                             <thead>
-                                <tr style={{ borderBottom: `1px solid ${border}` }}>
-                                    {["Type", "Timestamp", "Records", "Duration", "Status", "Message"].map((h) => (
-                                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap" style={{ color: textSecondary }}>{h}</th>
+                                <tr
+                                    style={{
+                                        borderBottom: `1px solid ${border}`,
+                                    }}
+                                >
+                                    {[
+                                        "Type",
+                                        "Timestamp",
+                                        "Records",
+                                        "Duration",
+                                        "Status",
+                                        "Message",
+                                    ].map((h) => (
+                                        <th
+                                            key={h}
+                                            className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            {h}
+                                        </th>
                                     ))}
                                 </tr>
                             </thead>
@@ -569,21 +1078,67 @@ export default function DeviceDetailPage() {
                                     if (!sh) return null;
                                     const st = syncTypeIcon(sh.type);
                                     return (
-                                        <tr key={sh.id} style={{ borderBottom: `1px solid ${border}` }}
-                                            onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rowHover; }}
-                                            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
+                                        <tr
+                                            key={sh.id}
+                                            style={{
+                                                borderBottom: `1px solid ${border}`,
+                                            }}
+                                            onMouseEnter={(e) => {
+                                                (
+                                                    e.currentTarget as HTMLTableRowElement
+                                                ).style.background = rowHover;
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                (
+                                                    e.currentTarget as HTMLTableRowElement
+                                                ).style.background =
+                                                    "transparent";
+                                            }}
                                         >
                                             <td className="px-4 py-3">
                                                 <span className="inline-flex items-center gap-1.5 text-xs font-medium capitalize">
-                                                    <i className={st.icon} style={{ color: st.color }}></i>
-                                                    <span style={{ color: textPrimary }}>{sh.type}</span>
+                                                    <i
+                                                        className={st.icon}
+                                                        style={{
+                                                            color: st.color,
+                                                        }}
+                                                    ></i>
+                                                    <span
+                                                        style={{
+                                                            color: textPrimary,
+                                                        }}
+                                                    >
+                                                        {sh.type}
+                                                    </span>
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-xs font-mono whitespace-nowrap" style={{ color: textSecondary }}>{sh.timestamp}</td>
-                                            <td className="px-4 py-3 text-sm font-semibold text-center" style={{ color: textPrimary }}>{sh.records || "-"}</td>
-                                            <td className="px-4 py-3 text-xs font-mono" style={{ color: textSecondary }}>{sh.duration}</td>
-                                            <td className="px-4 py-3">{syncStatusBadge(sh.status)}</td>
-                                            <td className="px-4 py-3 text-xs" style={{ color: textSecondary }}>{sh.message}</td>
+                                            <td
+                                                className="px-4 py-3 text-xs font-mono whitespace-nowrap"
+                                                style={{ color: textSecondary }}
+                                            >
+                                                {sh.timestamp}
+                                            </td>
+                                            <td
+                                                className="px-4 py-3 text-sm font-semibold text-center"
+                                                style={{ color: textPrimary }}
+                                            >
+                                                {sh.records || "-"}
+                                            </td>
+                                            <td
+                                                className="px-4 py-3 text-xs font-mono"
+                                                style={{ color: textSecondary }}
+                                            >
+                                                {sh.duration}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {syncStatusBadge(sh.status)}
+                                            </td>
+                                            <td
+                                                className="px-4 py-3 text-xs"
+                                                style={{ color: textSecondary }}
+                                            >
+                                                {sh.message}
+                                            </td>
                                         </tr>
                                     );
                                 })}
@@ -597,46 +1152,136 @@ export default function DeviceDetailPage() {
                     <div className="space-y-4">
                         {/* Summary Cards */}
                         <div className="grid grid-cols-3 gap-3">
-                            <div className="p-4 rounded-xl" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                                <p className="text-2xl font-bold" style={{ color: textPrimary }}>{employeesSummary.total}</p>
-                                <p className="text-xs" style={{ color: textSecondary }}>Total Employees</p>
+                            <div
+                                className="p-4 rounded-xl"
+                                style={{
+                                    background: cardBg,
+                                    border: `1px solid ${border}`,
+                                }}
+                            >
+                                <p
+                                    className="text-2xl font-bold"
+                                    style={{ color: textPrimary }}
+                                >
+                                    {employeesSummary.total}
+                                </p>
+                                <p
+                                    className="text-xs"
+                                    style={{ color: textSecondary }}
+                                >
+                                    Total Employees
+                                </p>
                             </div>
-                            <div className="p-4 rounded-xl" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                                <p className="text-2xl font-bold" style={{ color: "#16a34a" }}>{employeesSummary.active}</p>
-                                <p className="text-xs" style={{ color: textSecondary }}>Active</p>
+                            <div
+                                className="p-4 rounded-xl"
+                                style={{
+                                    background: cardBg,
+                                    border: `1px solid ${border}`,
+                                }}
+                            >
+                                <p
+                                    className="text-2xl font-bold"
+                                    style={{ color: "#16a34a" }}
+                                >
+                                    {employeesSummary.active}
+                                </p>
+                                <p
+                                    className="text-xs"
+                                    style={{ color: textSecondary }}
+                                >
+                                    Active
+                                </p>
                             </div>
-                            <div className="p-4 rounded-xl" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                                <p className="text-2xl font-bold" style={{ color: "#f59e0b" }}>{employeesSummary.probation}</p>
-                                <p className="text-xs" style={{ color: textSecondary }}>Probation</p>
+                            <div
+                                className="p-4 rounded-xl"
+                                style={{
+                                    background: cardBg,
+                                    border: `1px solid ${border}`,
+                                }}
+                            >
+                                <p
+                                    className="text-2xl font-bold"
+                                    style={{ color: "#f59e0b" }}
+                                >
+                                    {employeesSummary.probation}
+                                </p>
+                                <p
+                                    className="text-xs"
+                                    style={{ color: textSecondary }}
+                                >
+                                    Probation
+                                </p>
                             </div>
                         </div>
 
                         {/* Main Table Card */}
-                        <div className="rounded-xl overflow-hidden" style={{ background: cardBg, border: `1px solid ${border}` }}>
-                            <div className="px-5 py-3.5" style={{ borderBottom: `1px solid ${border}` }}>
-                                <h3 className="text-sm font-semibold" style={{ color: textPrimary }}>Connected Employees</h3>
-                                <p className="text-xs mt-0.5" style={{ color: textSecondary }}>
-                                    {employeesPagination.total} employees assigned to {device.area || "this area"}
+                        <div
+                            className="rounded-xl overflow-hidden"
+                            style={{
+                                background: cardBg,
+                                border: `1px solid ${border}`,
+                            }}
+                        >
+                            <div
+                                className="px-5 py-3.5"
+                                style={{ borderBottom: `1px solid ${border}` }}
+                            >
+                                <h3
+                                    className="text-sm font-semibold"
+                                    style={{ color: textPrimary }}
+                                >
+                                    Connected Employees
+                                </h3>
+                                <p
+                                    className="text-xs mt-0.5"
+                                    style={{ color: textSecondary }}
+                                >
+                                    {employeesPagination.total} employees
+                                    assigned to {device.area || "this area"}
                                 </p>
                             </div>
 
                             {/* Search and Filters */}
-                            <div className="px-5 py-3 flex flex-wrap items-center gap-3" style={{ borderBottom: `1px solid ${border}` }}>
+                            <div
+                                className="px-5 py-3 flex flex-wrap items-center gap-3"
+                                style={{ borderBottom: `1px solid ${border}` }}
+                            >
                                 <div className="relative flex-1 min-w-[200px] max-w-sm">
-                                    <i className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: textSecondary }}></i>
+                                    <i
+                                        className="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-sm"
+                                        style={{ color: textSecondary }}
+                                    ></i>
                                     <input
                                         value={employeeSearch}
-                                        onChange={(e) => handleEmployeeSearch(e.target.value)}
+                                        onChange={(e) =>
+                                            handleEmployeeSearch(e.target.value)
+                                        }
                                         placeholder="Search by name, ID, department..."
                                         className="w-full pl-9 pr-4 py-2 rounded-lg text-sm outline-none"
-                                        style={{ background: isDark ? "#374151" : "#f9fafb", border: `1px solid ${border}`, color: textPrimary }}
+                                        style={{
+                                            background: isDark
+                                                ? "#374151"
+                                                : "#f9fafb",
+                                            border: `1px solid ${border}`,
+                                            color: textPrimary,
+                                        }}
                                     />
                                 </div>
                                 <select
                                     value={employeeStatusFilter}
-                                    onChange={(e) => handleEmployeeStatusFilter(e.target.value)}
+                                    onChange={(e) =>
+                                        handleEmployeeStatusFilter(
+                                            e.target.value,
+                                        )
+                                    }
                                     className="px-4 py-2 rounded-lg text-sm outline-none cursor-pointer"
-                                    style={{ background: isDark ? "#374151" : "#f9fafb", border: `1px solid ${border}`, color: textPrimary }}
+                                    style={{
+                                        background: isDark
+                                            ? "#374151"
+                                            : "#f9fafb",
+                                        border: `1px solid ${border}`,
+                                        color: textPrimary,
+                                    }}
                                 >
                                     <option value="">All Status</option>
                                     <option value="active">Active</option>
@@ -645,12 +1290,24 @@ export default function DeviceDetailPage() {
                                 </select>
                                 <select
                                     value={employeePerPage}
-                                    onChange={(e) => handleEmployeePerPageChange(Number(e.target.value))}
+                                    onChange={(e) =>
+                                        handleEmployeePerPageChange(
+                                            Number(e.target.value),
+                                        )
+                                    }
                                     className="px-4 py-2 rounded-lg text-sm outline-none cursor-pointer"
-                                    style={{ background: isDark ? "#374151" : "#f9fafb", border: `1px solid ${border}`, color: textPrimary }}
+                                    style={{
+                                        background: isDark
+                                            ? "#374151"
+                                            : "#f9fafb",
+                                        border: `1px solid ${border}`,
+                                        color: textPrimary,
+                                    }}
                                 >
                                     {perPageOptions.map((n) => (
-                                        <option key={n} value={n}>{n} per page</option>
+                                        <option key={n} value={n}>
+                                            {n} per page
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -660,48 +1317,177 @@ export default function DeviceDetailPage() {
                                 {isEmployeesLoading ? (
                                     <div className="p-12 text-center">
                                         <div className="inline-block w-8 h-8 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                                        <p className="text-sm mt-3" style={{ color: textSecondary }}>Loading employees...</p>
+                                        <p
+                                            className="text-sm mt-3"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            Loading employees...
+                                        </p>
                                     </div>
                                 ) : (
                                     <table className="w-full min-w-[800px]">
                                         <thead>
-                                            <tr style={{ borderBottom: `1px solid ${border}` }}>
-                                                {["Employee", "ID", "Department", "Position", "Status"].map((h) => (
-                                                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap" style={{ color: textSecondary }}>{h}</th>
+                                            <tr
+                                                style={{
+                                                    borderBottom: `1px solid ${border}`,
+                                                }}
+                                            >
+                                                {[
+                                                    "Employee",
+                                                    "ID",
+                                                    "Department",
+                                                    "Position",
+                                                    "Status",
+                                                ].map((h) => (
+                                                    <th
+                                                        key={h}
+                                                        className="px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+                                                        style={{
+                                                            color: textSecondary,
+                                                        }}
+                                                    >
+                                                        {h}
+                                                    </th>
                                                 ))}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {employees.length > 0 ? (
                                                 employees.map((emp) => {
-                                                    const firstName = emp.firstName || "";
-                                                    const lastName = emp.lastName || "";
-                                                    const fullName = `${firstName} ${lastName}`.trim() || emp.employeeId || "Unknown";
-                                                    const initials = emp.initials || ((firstName[0] || "") + (lastName[0] || "")) || fullName.slice(0, 2).toUpperCase();
+                                                    const firstName =
+                                                        emp.firstName || "";
+                                                    const lastName =
+                                                        emp.lastName || "";
+                                                    const fullName =
+                                                        `${firstName} ${lastName}`.trim() ||
+                                                        emp.employeeId ||
+                                                        "Unknown";
+                                                    const initials =
+                                                        emp.initials ||
+                                                        (firstName[0] || "") +
+                                                            (lastName[0] ||
+                                                                "") ||
+                                                        fullName
+                                                            .slice(0, 2)
+                                                            .toUpperCase();
 
                                                     return (
-                                                        <tr key={emp.id} style={{ borderBottom: `1px solid ${border}` }}
-                                                            onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rowHover; }}
-                                                            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "transparent"; }}
+                                                        <tr
+                                                            key={emp.id}
+                                                            style={{
+                                                                borderBottom: `1px solid ${border}`,
+                                                            }}
+                                                            onMouseEnter={(
+                                                                e,
+                                                            ) => {
+                                                                (
+                                                                    e.currentTarget as HTMLTableRowElement
+                                                                ).style.background =
+                                                                    rowHover;
+                                                            }}
+                                                            onMouseLeave={(
+                                                                e,
+                                                            ) => {
+                                                                (
+                                                                    e.currentTarget as HTMLTableRowElement
+                                                                ).style.background =
+                                                                    "transparent";
+                                                            }}
                                                         >
                                                             <td className="px-4 py-3">
                                                                 <div className="flex items-center gap-2.5">
-                                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                                                                        style={{ background: getAvatarColor(String(emp.id ?? "")) }}>
-                                                                        {initials || "?"}
+                                                                    <div
+                                                                        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                                                                        style={{
+                                                                            background:
+                                                                                getAvatarColor(
+                                                                                    String(
+                                                                                        emp.id ??
+                                                                                            "",
+                                                                                    ),
+                                                                                ),
+                                                                        }}
+                                                                    >
+                                                                        {initials ||
+                                                                            "?"}
                                                                     </div>
-                                                                    <span className="text-sm font-medium whitespace-nowrap" style={{ color: textPrimary }}>{fullName}</span>
+                                                                    <span
+                                                                        className="text-sm font-medium whitespace-nowrap"
+                                                                        style={{
+                                                                            color: textPrimary,
+                                                                        }}
+                                                                    >
+                                                                        {
+                                                                            fullName
+                                                                        }
+                                                                    </span>
                                                                 </div>
                                                             </td>
-                                                            <td className="px-4 py-3 text-xs font-mono" style={{ color: textSecondary }}>{emp.employeeId || "-"}</td>
-                                                            <td className="px-4 py-3 text-sm whitespace-nowrap" style={{ color: textSecondary }}>{emp.department || "-"}</td>
-                                                            <td className="px-4 py-3 text-sm whitespace-nowrap" style={{ color: textSecondary }}>{emp.position || "-"}</td>
+                                                            <td
+                                                                className="px-4 py-3 text-xs font-mono"
+                                                                style={{
+                                                                    color: textSecondary,
+                                                                }}
+                                                            >
+                                                                {emp.employeeId ||
+                                                                    "-"}
+                                                            </td>
+                                                            <td
+                                                                className="px-4 py-3 text-sm whitespace-nowrap"
+                                                                style={{
+                                                                    color: textSecondary,
+                                                                }}
+                                                            >
+                                                                {emp.department ||
+                                                                    "-"}
+                                                            </td>
+                                                            <td
+                                                                className="px-4 py-3 text-sm whitespace-nowrap"
+                                                                style={{
+                                                                    color: textSecondary,
+                                                                }}
+                                                            >
+                                                                {emp.position ||
+                                                                    "-"}
+                                                            </td>
                                                             <td className="px-4 py-3">
-                                                                <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{
-                                                                    background: emp.status === "active" ? "#dcfce7" : emp.status === "probation" ? "#fef9c3" : emp.status === "inactive" ? "#fee2e2" : "#f3f4f6",
-                                                                    color: emp.status === "active" ? "#16a34a" : emp.status === "probation" ? "#ca8a04" : emp.status === "inactive" ? "#dc2626" : "#6b7280",
-                                                                }}>
-                                                                    {emp.status ? emp.status.charAt(0).toUpperCase() + emp.status.slice(1) : "Unknown"}
+                                                                <span
+                                                                    className="px-2.5 py-1 rounded-full text-xs font-medium"
+                                                                    style={{
+                                                                        background:
+                                                                            emp.status ===
+                                                                            "active"
+                                                                                ? "#dcfce7"
+                                                                                : emp.status ===
+                                                                                    "probation"
+                                                                                  ? "#fef9c3"
+                                                                                  : emp.status ===
+                                                                                      "inactive"
+                                                                                    ? "#fee2e2"
+                                                                                    : "#f3f4f6",
+                                                                        color:
+                                                                            emp.status ===
+                                                                            "active"
+                                                                                ? "#16a34a"
+                                                                                : emp.status ===
+                                                                                    "probation"
+                                                                                  ? "#ca8a04"
+                                                                                  : emp.status ===
+                                                                                      "inactive"
+                                                                                    ? "#dc2626"
+                                                                                    : "#6b7280",
+                                                                    }}
+                                                                >
+                                                                    {emp.status
+                                                                        ? emp.status
+                                                                              .charAt(
+                                                                                  0,
+                                                                              )
+                                                                              .toUpperCase() +
+                                                                          emp.status.slice(
+                                                                              1,
+                                                                          )
+                                                                        : "Unknown"}
                                                                 </span>
                                                             </td>
                                                         </tr>
@@ -709,7 +1495,13 @@ export default function DeviceDetailPage() {
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan={5} className="py-12 text-center text-sm" style={{ color: textSecondary }}>
+                                                    <td
+                                                        colSpan={5}
+                                                        className="py-12 text-center text-sm"
+                                                        style={{
+                                                            color: textSecondary,
+                                                        }}
+                                                    >
                                                         <i className="ri-team-line text-3xl mb-2 block"></i>
                                                         No employees found
                                                     </td>
@@ -722,7 +1514,11 @@ export default function DeviceDetailPage() {
 
                             {/* Pagination */}
                             {!isEmployeesLoading && employees.length > 0 && (
-                                <EmployeePagination pagination={employeesPagination} onPageChange={goToEmployeePage} textSecondary={textSecondary} />
+                                <EmployeePagination
+                                    pagination={employeesPagination}
+                                    onPageChange={goToEmployeePage}
+                                    textSecondary={textSecondary}
+                                />
                             )}
                         </div>
                     </div>
@@ -733,7 +1529,9 @@ export default function DeviceDetailPage() {
                     <DeviceCommandCenter
                         device={device}
                         commands={commands}
-                        onCommandSent={(cmd) => setCommands((prev) => [cmd, ...prev])}
+                        onCommandSent={(cmd) =>
+                            setCommands((prev) => [cmd, ...prev])
+                        }
                     />
                 )}
             </div>
