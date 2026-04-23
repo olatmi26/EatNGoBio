@@ -5,11 +5,11 @@ use App\Models\Device;
 use App\Models\DeviceCommand;
 use Illuminate\Support\Facades\Log;
 
+
+
+
 class DeviceCommandService
 {
-    /**
-     * Available commands with their ZKTeco protocol equivalents
-     */
     public const COMMANDS = [
         'RESTART'         => [
             'protocol'        => 'REBOOT',
@@ -233,6 +233,26 @@ class DeviceCommandService
     }
 
     /**
+     * SYNC USERS FROM DEVICE TO SYSTEM
+     * Required by DeviceController.php (see code context line 60).
+     */
+    public function syncUsersFromDevice(Device $device): ?DeviceCommand
+    {
+        // Calls the supported command for SYNC_USER (which issues a "DATA QUERY USERINFO" protocol).
+        return $this->sendCommand($device, 'SYNC_USER');
+    }
+
+    /**
+     * PULL ATTLOG (attendance logs) FROM DEVICE TO SYSTEM
+     * Required by DeviceController.php (see code context line 60).
+     */
+    public function pullAttendanceLogs(Device $device): ?DeviceCommand
+    {
+        // Calls the supported command for GET_ATTLOG (which issues a "DATA QUERY ATTLOG" protocol).
+        return $this->sendCommand($device, 'GET_ATTLOG');
+    }
+
+    /**
      * Process command response from device
      */
     public function processResponse(int $commandId, string $response, int $returnCode): void
@@ -371,5 +391,70 @@ class DeviceCommandService
             'SET_USER', 'SET_FINGERPRINT', 'SET_FACE'   => '#0891b2',
             default          => '#6b7280',
         };
+    }
+
+    /**
+     * Get the command history for a device.
+     *
+     * @param Device $device
+     * @return \Illuminate\Support\Collection
+     */
+    public function getCommandHistory(Device $device)
+    {
+        return DeviceCommand::where('device_id', $device->id)
+            ->orderByDesc('created_at')
+            ->get();
+    }
+
+    /**
+     * Queue sync all users command(s) for a device.
+     * If the device supports mass user sync, only one command is queued.
+     * Otherwise, one command per user is queued.
+     *
+     * @param Device $device
+     * @return array
+     */
+    public function syncAllUsers(Device $device): array
+    {
+        // Example logic -- you may want to adjust to match your device's user resolution logic
+        $commands = [];
+
+        // Here, we assume all devices just queue one SYNC_USER command.
+        $cmd = DeviceCommand::create([
+            'device_id'    => $device->id,
+            'command'      => 'SYNC_USER',
+            'params'       => null,
+            'status'       => 'pending',
+        ]);
+        $commands[] = $cmd;
+
+        return $commands;
+    }
+
+    
+    /**
+     * Retry failed commands for a device by re-queuing.
+     *
+     * @param Device $device
+     * @return array
+     */
+    public function retryFailedCommands(Device $device): array
+    {
+        $failed = DeviceCommand::where('device_id', $device->id)
+            ->where('status', 'failed')
+            ->get();
+
+        $newCommands = [];
+        foreach ($failed as $command) {
+            $newCommand = DeviceCommand::create([
+                'device_id' => $device->id,
+                'command'   => $command->command,
+                'params'    => $command->params,
+                'status'    => 'pending',
+            ]);
+            $newCommands[] = $newCommand;
+        }
+
+        return $newCommands;
     }
 }
