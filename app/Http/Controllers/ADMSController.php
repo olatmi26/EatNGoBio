@@ -26,6 +26,9 @@ class ADMSController extends Controller
     /**
      * GET/POST /iclock/cdata — Device registration / handshake / data push
      */
+    /**
+     * GET/POST /iclock/cdata — Device registration / handshake / data push
+     */
     public function cdata(Request $request)
     {
         try {
@@ -59,20 +62,35 @@ class ADMSController extends Controller
             // Track previous status
             $wasOnline = $device->status === 'online';
 
-            // Update device with data from handshake.
-            // Cnt/FPCnt/FaceCnt are query params sent by the device on GET ?options=all.
-            // Fall back to current DB values so a plain heartbeat never zeroes the counts.
-            $device->update([
+            // CRITICAL FIX: Get device-reported counts from query parameters
+            $deviceUserCount = (int) ($request->query('Cnt') ?? $request->input('Cnt', 0));
+            $deviceFpCount   = (int) ($request->query('FPCnt') ?? $request->input('FPCnt', 0));
+            $deviceFaceCount = (int) ($request->query('FaceCnt') ?? $request->input('FaceCnt', 0));
+
+            // Update device with data from handshake
+            // If device reports counts, use them. Otherwise preserve existing DB counts
+            $updateData = [
                 'last_seen'  => now(),
                 'ip_address' => $ip,
                 'firmware'   => $firmware,
-                'user_count' => (int) ($request->query('Cnt') ?? $request->input('Cnt', $device->user_count)),
-                'fp_count'   => (int) ($request->query('FPCnt') ?? $request->input('FPCnt', $device->fp_count)),
-                'face_count' => (int) ($request->query('FaceCnt') ?? $request->input('FaceCnt', $device->face_count)),
                 'status'     => 'online',
-            ]);
+            ];
 
-            // Refresh so the in-memory model reflects the just-saved values
+            // Only update counts if device provided them (handshake with options=all)
+            if ($deviceUserCount > 0 || $options === 'all') {
+                $updateData['user_count'] = $deviceUserCount;
+                $updateData['fp_count']   = $deviceFpCount;
+                $updateData['face_count'] = $deviceFaceCount;
+
+                Log::info('📊 Device reported counts via handshake', [
+                    'sn'    => $sn,
+                    'users' => $deviceUserCount,
+                    'fp'    => $deviceFpCount,
+                    'face'  => $deviceFaceCount,
+                ]);
+            }
+
+            $device->update($updateData);
             $device->refresh();
 
             Log::info('📊 Device updated', [
@@ -80,6 +98,7 @@ class ADMSController extends Controller
                 'user_count' => $device->user_count,
                 'fp_count'   => $device->fp_count,
                 'face_count' => $device->face_count,
+                'options'    => $options,
             ]);
 
             // Fire status change event (throttled)
@@ -165,10 +184,21 @@ class ADMSController extends Controller
     {
         $table   = $request->query('table') ?? $request->input('table');
         $rawBody = $request->getContent();
+
+        Log::info('📥 Processing POST data', [
+            'sn'          => $device->serial_number,
+            'table'       => $table,
+            'body_length' => strlen($rawBody),
+        ]);
+
         if ($table === 'ATTLOG') {
             $count = $this->processAttendanceLogs($device, $rawBody);
             $this->operationService->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} records");
             Log::info('✅ ATTLOG processed', ['sn' => $device->serial_number, 'count' => $count]);
+
+            // Update last_seen and ensure device is marked online
+            $device->update(['last_seen' => now(), 'status' => 'online']);
+
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
@@ -176,6 +206,11 @@ class ADMSController extends Controller
             $count = $this->operationService->processUserInfo($device, $rawBody);
             $this->operationService->writeSyncLog($device, 'user_sync', $count, 'success', null, "{$count} users");
             Log::info('✅ USERINFO processed', ['sn' => $device->serial_number, 'count' => $count]);
+
+            // CRITICAL: Update device counts after processing users
+            $this->operationService->updateDeviceCounts($device);
+            $device->update(['last_seen' => now(), 'status' => 'online']);
+
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
@@ -183,6 +218,18 @@ class ADMSController extends Controller
             $stats = $this->operationService->processOperationLog($device, $rawBody);
             $this->operationService->writeSyncLog($device, 'oplog', 0, 'success', null,
                 "USER:{$stats['users']} FP:{$stats['fingerprints']} FACE:{$stats['faces']}");
+
+            // CRITICAL: Update device counts after processing OPERLOG
+            $this->operationService->updateDeviceCounts($device);
+            $device->update(['last_seen' => now(), 'status' => 'online']);
+
+            Log::info('✅ OPERLOG processed - Device counts updated', [
+                'sn'           => $device->serial_number,
+                'users'        => $stats['users'],
+                'fingerprints' => $stats['fingerprints'],
+                'faces'        => $stats['faces'],
+            ]);
+
             return response("OK", 200)->header('Content-Type', 'text/plain');
         }
 
@@ -417,22 +464,53 @@ class ADMSController extends Controller
 
     /**
      * POST /iclock/devicecmd — Command result
+     * ZKTeco ADMS protocol: Device sends acknowledgment as URL-encoded string
+     * Format: ID=123&Return=0&CMD=DATA QUERY ATTLOG
+     * The actual data is NOT in this response - it comes via POST /iclock/cdata?table=ATTLOG
      */
     public function deviceCmd(Request $request)
     {
         $sn   = $request->query('SN');
         $body = $request->getContent();
 
-        Log::info('📨 devicecmd', ['sn' => $sn, 'body' => $body]);
+        Log::info('📨 devicecmd received', ['sn' => $sn, 'body' => $body]);
 
+        // Parse URL-encoded parameters (ID=123&Return=0)
         parse_str($body, $params);
 
         if (! empty($params['ID']) && isset($params['Return'])) {
-            $this->commandService->processResponse(
-                (int) $params['ID'],
-                $body,
-                (int) $params['Return']
-            );
+            $commandId  = (int) $params['ID'];
+            $returnCode = (int) $params['Return'];
+
+            // Update command status - DO NOT process data here since it's just an ACK
+            $command = DeviceCommand::find($commandId);
+
+            if ($command) {
+                $status = $returnCode === 0 ? 'success' : 'failed';
+                $command->update([
+                    'status'       => $status,
+                    'return_code'  => $returnCode,
+                    'response'     => $body,
+                    'completed_at' => now(),
+                ]);
+
+                Log::info('✅ Command acknowledged', [
+                    'command_id'  => $commandId,
+                    'device'      => $command->device_sn,
+                    'status'      => $status,
+                    'return_code' => $returnCode,
+                ]);
+
+                // If command failed, log it but don't process data (data comes separately)
+                if ($status === 'failed') {
+                    Log::warning('⚠️ Command failed on device', [
+                        'command_id' => $commandId,
+                        'command'    => $command->command,
+                    ]);
+                }
+            } else {
+                Log::warning('⚠️ Command not found for acknowledgment', ['command_id' => $commandId]);
+            }
         }
 
         return response("OK", 200)->header('Content-Type', 'text/plain');

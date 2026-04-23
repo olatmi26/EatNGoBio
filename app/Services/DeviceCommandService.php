@@ -263,44 +263,28 @@ class DeviceCommandService
 
         $status = $returnCode === 0 ? 'success' : 'failed';
 
-        // If command was successful and it's a data query, trigger data processing
-        if ($status === 'success') {
-            $device = Device::where('serial_number', $command->device_sn)->first();
-
-            if ($device) {
-                // Check if response contains attendance data
-                if (strpos($command->command, 'ATTLOG') !== false && ! empty($response)) {
-                    Log::info('📊 Processing attendance data from command response', [
-                        'device'          => $device->serial_number,
-                        'response_length' => strlen($response),
-                    ]);
-                    // Trigger attendance log processing
-                    app(DeviceOperationService::class)->processAttendanceLogs($device, $response);
-                }
-
-                // Check if response contains user data
-                if (strpos($command->command, 'USERINFO') !== false && ! empty($response)) {
-                    Log::info('👥 Processing user data from command response', [
-                        'device' => $device->serial_number,
-                    ]);
-                    app(DeviceOperationService::class)->processUserInfo($device, $response);
-                    app(DeviceOperationService::class)->updateDeviceCounts($device);
-                }
-            }
+        // DO NOT process data here - it comes via POST /iclock/cdata?table=ATTLOG
+        // This is just an acknowledgment from the device
+        if ($status === 'failed') {
+            Log::warning('⚠️ Command failed on device', [
+                'command_id'  => $commandId,
+                'command'     => $command->command,
+                'device'      => $command->device_sn,
+                'return_code' => $returnCode,
+            ]);
+        } else {
+            Log::info('✅ Command successful', [
+                'command_id' => $commandId,
+                'command'    => $command->command,
+                'device'     => $command->device_sn,
+            ]);
         }
 
         $command->update([
             'status'       => $status,
-            'response'     => substr($response, 0, 65535), // Trim very long responses
+            'response'     => substr($response, 0, 65535),
             'return_code'  => $returnCode,
             'completed_at' => now(),
-        ]);
-
-        Log::info('✅ Command response processed', [
-            'command_id'  => $commandId,
-            'device'      => $command->device_sn,
-            'status'      => $status,
-            'return_code' => $returnCode,
         ]);
     }
 

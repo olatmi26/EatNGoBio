@@ -40,6 +40,11 @@ class Device extends Model
 
     ];
 
+    public function employees()
+    {
+        return $this->hasMany(Employee::class, 'source_device_sn', 'serial_number');
+    }
+
     /**
      * Device is "online" if its last heartbeat arrived within:
      * (heartbeat_interval × 2) + 30 seconds grace.
@@ -99,8 +104,5 @@ class Device extends Model
             today())->count();
     }
 
-    public function employees()
-    {
-        return $this->hasMany(Employee::class, 'source_device_id', 'id');
-    }
+   
 }

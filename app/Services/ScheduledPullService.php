@@ -1,25 +1,26 @@
-// app/Services/ScheduledPullService.php
 <?php
-    namespace App\Services;
+namespace App\Services;
 
-    use App\Models\Device;
-    use Illuminate\Support\Facades\Cache;
-    use Illuminate\Support\Facades\Log;
+use App\Models\Device;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
-    class ScheduledPullService
-    {
+class ScheduledPullService
+{
     public function __construct(
         private DeviceCommandService $commandService
     ) {}
-
     /**
      * Execute scheduled pull for all online devices
      */
     public function executeScheduledPull(): array
     {
+        // FIXED: Get devices that are online based on last_seen timestamp
         $devices = Device::where('approved', true)
-            ->where('status', 'online')
-            ->get();
+            ->get()
+            ->filter(function ($device) {
+                return $device->is_online; // Use computed status
+            });
 
         $results = [
             'total'             => $devices->count(),
