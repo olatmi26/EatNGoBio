@@ -349,7 +349,7 @@ class ADMSController extends Controller
                     continue;
                 }
             } else {
-                Log::warning('⚠️ Employee not found for PIN', ['pin' => $pin, 'device' => $device->serial_number]);
+                Log::warning('⚠️ Employee not found for PIN', ['pin' => $pin, 'device' => $device->serial_number, 'status'=>202],);
             }
 
             // Save successful attendance log
