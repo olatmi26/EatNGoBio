@@ -2,6 +2,7 @@
 namespace App\Services;
 
 use App\Models\AttendanceLog;
+use App\Models\BiometricTemplate;
 use App\Models\Device;
 use App\Models\DeviceCommand;
 use App\Models\DeviceSyncLog;
@@ -81,6 +82,36 @@ class DeviceService
                 return $this->formatDevice($d);
             })
             ->toArray();
+    }
+
+    public function forceSyncDeviceCounts(Device $device): array
+    {
+        // Count by device serial number
+        $userCount = Employee::where('source_device_sn', $device->serial_number)->count();
+
+        // Count fingerprints
+        $fpCount = BiometricTemplate::where('device_sn', $device->serial_number)
+            ->where('type', 'fingerprint')
+            ->where('is_valid', true)
+            ->count();
+
+        // Count faces
+        $faceCount = BiometricTemplate::where('device_sn', $device->serial_number)
+            ->where('type', 'face')
+            ->where('is_valid', true)
+            ->count();
+
+        $device->update([
+            'user_count' => $userCount,
+            'fp_count'   => $fpCount,
+            'face_count' => $faceCount,
+        ]);
+
+        return [
+            'users'        => $userCount,
+            'fingerprints' => $fpCount,
+            'faces'        => $faceCount,
+        ];
     }
 
     /**

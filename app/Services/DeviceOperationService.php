@@ -9,6 +9,7 @@ use App\Models\DeviceSyncLog;
 use App\Models\Employee;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DeviceOperationService
@@ -83,6 +84,7 @@ class DeviceOperationService
                 'verify_type'   => $verify,
                 'work_code'     => $workCode,
                 'raw_line_data' => $line,
+                'status'        => 'success',
             ]);
 
             Cache::put($cacheKey, true, now()->addHours(24));
@@ -96,6 +98,9 @@ class DeviceOperationService
                 'time' => $punchTime->toDateTimeString(),
             ]);
         }
+
+        // CRITICAL FIX: Update device last_seen after processing logs
+        $device->update(['last_seen' => now()]);
 
         return $saved;
     }
@@ -128,6 +133,7 @@ class DeviceOperationService
             $count++;
         }
 
+        // CRITICAL FIX: Update device counts immediately after processing users
         $this->updateDeviceCounts($device);
 
         Log::info('✅ USERINFO processed', ['sn' => $device->serial_number, 'count' => $count]);
@@ -172,10 +178,8 @@ class DeviceOperationService
             }
         }
 
-        // Update device counts if any data was processed
-        if ($stats['users'] > 0 || $stats['fingerprints'] > 0 || $stats['faces'] > 0) {
-            $this->updateDeviceCounts($device);
-        }
+        // CRITICAL FIX: Always update device counts after processing OPERLOG
+        $this->updateDeviceCounts($device);
 
         Log::info('📊 OPERLOG summary', array_merge(['sn' => $device->serial_number], $stats));
         return $stats;
@@ -213,6 +217,7 @@ class DeviceOperationService
     {
         $parsed = $this->parseFingerprintLine($line);
         if (! $parsed) {
+            Log::warning('⚠️ Failed to parse fingerprint line', ['line' => $line]);
             return false;
         }
 
@@ -223,6 +228,11 @@ class DeviceOperationService
         ]);
 
         $employee = $this->findOrCreateEmployee($parsed['pin'], $device);
+
+        if (! $employee) {
+            Log::warning('⚠️ Employee not found for fingerprint', ['pin' => $parsed['pin']]);
+            return false;
+        }
 
         BiometricTemplate::updateOrCreate(
             [
@@ -235,6 +245,8 @@ class DeviceOperationService
                 'template_size' => $parsed['size'],
                 'template_data' => $parsed['template'],
                 'is_valid'      => $parsed['valid'],
+                'major_version' => 2,
+                'minor_version' => 0,
             ]
         );
 
@@ -250,12 +262,18 @@ class DeviceOperationService
     {
         $parsed = $this->parseFaceLine($line);
         if (! $parsed) {
+            Log::warning('⚠️ Failed to parse face line', ['line' => $line]);
             return false;
         }
 
         Log::info('😊 Processing Face', ['pin' => $parsed['pin'], 'size' => $parsed['size']]);
 
         $employee = $this->findOrCreateEmployee($parsed['pin'], $device);
+
+        if (! $employee) {
+            Log::warning('⚠️ Employee not found for face', ['pin' => $parsed['pin']]);
+            return false;
+        }
 
         BiometricTemplate::updateOrCreate(
             [
@@ -268,6 +286,8 @@ class DeviceOperationService
                 'template_size' => $parsed['size'],
                 'template_data' => $parsed['template'],
                 'is_valid'      => $parsed['valid'],
+                'major_version' => 2,
+                'minor_version' => 0,
             ]
         );
 
@@ -276,22 +296,36 @@ class DeviceOperationService
     }
 
     /**
-     * Update device user, fp, and face counts
+     * Update device user, fp, and face counts - FIXED with direct DB queries
      */
     public function updateDeviceCounts(Device $device): void
     {
-        $device->refresh(); 
+        // Get unique employees associated with this device
         $userCount = Employee::where('source_device_sn', $device->serial_number)->count();
-        $fpCount   = BiometricTemplate::where('device_sn', $device->serial_number)
-                        ->where('type', 'fingerprint')->where('is_valid', true)->count();
+
+        // If no employees found via source_device_sn, try via area
+        if ($userCount === 0 && $device->area) {
+            $userCount = Employee::where('area', $device->area)
+                ->where('active', true)
+                ->count();
+        }
+
+        // Count valid fingerprints for this device
+        $fpCount = BiometricTemplate::where('device_sn', $device->serial_number)
+            ->where('type', 'fingerprint')
+            ->where('is_valid', true)
+            ->count();
+
+        // Count valid faces for this device
         $faceCount = BiometricTemplate::where('device_sn', $device->serial_number)
-                        ->where('type', 'face')->where('is_valid', true)->count();
-    
-        // If DB has no records yet, preserve what the device reported in its handshake
+            ->where('type', 'face')
+            ->where('is_valid', true)
+            ->count();
+
         $device->update([
-            'user_count' => max($userCount, $device->getRawOriginal('user_count') ?? 0),
-            'fp_count'   => max($fpCount,   $device->getRawOriginal('fp_count')   ?? 0),
-            'face_count' => max($faceCount, $device->getRawOriginal('face_count') ?? 0),
+            'user_count' => $userCount,
+            'fp_count'   => $fpCount,
+            'face_count' => $faceCount,
         ]);
 
         Log::info('📊 Device counts updated', [
@@ -303,15 +337,17 @@ class DeviceOperationService
     }
 
     /**
-     * Find or create employee by PIN
+     * Find or create employee by PIN - FIXED to properly associate with device
      */
     public function findOrCreateEmployee(string $pin, Device $device): Employee
     {
         $employee = Employee::where('employee_id', $pin)->first();
 
         if ($employee) {
-            // Update device association
-            $employee->update(['source_device_sn' => $device->serial_number]);
+            // Update device association if not set
+            if (! $employee->source_device_sn) {
+                $employee->update(['source_device_sn' => $device->serial_number]);
+            }
 
             // Add area to biometric_areas if not present
             $areas = $employee->biometric_areas ?? [];
@@ -323,10 +359,10 @@ class DeviceOperationService
             return $employee;
         }
 
-        // Create new employee
+        // Create new employee with proper device association
         return Employee::create([
             'employee_id'      => $pin,
-            'first_name'       => 'PIN',
+            'first_name'       => 'Employee',
             'last_name'        => $pin,
             'source_device_sn' => $device->serial_number,
             'biometric_areas'  => $device->area ? [$device->area] : [],
@@ -337,7 +373,7 @@ class DeviceOperationService
     }
 
     /**
-     * Sync employee data from device
+     * Sync employee data from device - FIXED to track device association
      */
     public function syncEmployeeFromDevice(string $pin, string $name, ?string $card, Device $device, bool $active): Employee
     {
@@ -348,20 +384,20 @@ class DeviceOperationService
         $employee = Employee::where('employee_id', $pin)->first();
 
         if ($employee) {
-            // Update existing
-            $employee->update([
+            // Update existing - preserve name if user has set a custom name
+            $updateData = [
                 'source_device_sn' => $device->serial_number,
                 'card'             => $card ?: $employee->card,
                 'active'           => $active,
-            ]);
+            ];
 
-            // Update name only if currently empty/generic
-            if (empty($employee->first_name) || $employee->first_name === 'PIN') {
-                $employee->update([
-                    'first_name' => $firstName ?: 'Employee',
-                    'last_name'  => $lastName ?: $pin,
-                ]);
+            // Only update name if it's the default "PIN" value or empty
+            if (empty($employee->first_name) || $employee->first_name === 'PIN' || $employee->first_name === 'Employee') {
+                $updateData['first_name'] = $firstName ?: 'Employee';
+                $updateData['last_name']  = $lastName ?: $pin;
             }
+
+            $employee->update($updateData);
 
             // Add area to biometric_areas
             $areas = $employee->biometric_areas ?? [];
@@ -392,11 +428,12 @@ class DeviceOperationService
     }
 
     /**
-     * Parse USER line from OPERLOG
+     * Parse USER line from OPERLOG - FIXED pattern
      */
     private function parseUserLine(string $line): ?array
     {
-        if (! preg_match('/PIN=(\d+)/i', $line, $matches)) {
+        // Pattern: USER PIN=123 Name=John Doe Card=12345
+        if (! preg_match('/PIN=([^\s\t]+)/i', $line, $matches)) {
             return null;
         }
         $pin = $matches[1];
@@ -407,7 +444,7 @@ class DeviceOperationService
         }
 
         $card = null;
-        if (preg_match('/Card=([^\t\r\n]*)/i', $line, $cardMatches)) {
+        if (preg_match('/Card=([^\s\t]*)/i', $line, $cardMatches)) {
             $card = trim($cardMatches[1]) ?: null;
         }
 
@@ -415,11 +452,11 @@ class DeviceOperationService
     }
 
     /**
-     * Parse Fingerprint line from OPERLOG
+     * Parse Fingerprint line from OPERLOG - FIXED pattern for binary data
      */
     private function parseFingerprintLine(string $line): ?array
     {
-        if (! preg_match('/PIN=(\d+)/i', $line, $matches)) {
+        if (! preg_match('/PIN=([^\s\t]+)/i', $line, $matches)) {
             return null;
         }
         $pin = $matches[1];
@@ -439,20 +476,21 @@ class DeviceOperationService
             $valid = $matches[1] === '1';
         }
 
+        // Extract template data (everything after TMP=)
         $template = null;
-        if (preg_match('/TMP=([^\r\n]+)/i', $line, $matches)) {
-            $template = $matches[1];
+        if (preg_match('/TMP=(.+)$/i', $line, $matches)) {
+            $template = trim($matches[1]);
         }
 
         return compact('pin', 'fid', 'size', 'valid', 'template');
     }
 
     /**
-     * Parse Face line from OPERLOG
+     * Parse Face line from OPERLOG - FIXED pattern
      */
     private function parseFaceLine(string $line): ?array
     {
-        if (! preg_match('/PIN=(\d+)/i', $line, $matches)) {
+        if (! preg_match('/PIN=([^\s\t]+)/i', $line, $matches)) {
             return null;
         }
         $pin = $matches[1];
@@ -467,18 +505,10 @@ class DeviceOperationService
             $valid = $matches[1] === '1';
         }
 
+        // Extract template data
         $template = null;
-        if (preg_match('/TMP=([^\r\n]+)/i', $line, $matches)) {
-            $template = $matches[1];
-        }
-
-        // Also accept lowercase/mixed case for SIZE and VALID, just as in parseFingerprintLine
-        if (preg_match('/size=(\d+)/i', $line, $matches)) {
-            $size = (int) $matches[1];
-        }
-
-        if (preg_match('/valid=(\d+)/i', $line, $matches)) {
-            $valid = $matches[1] === '1';
+        if (preg_match('/TMP=(.+)$/i', $line, $matches)) {
+            $template = trim($matches[1]);
         }
 
         return compact('pin', 'size', 'valid', 'template');

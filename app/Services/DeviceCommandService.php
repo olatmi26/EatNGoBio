@@ -5,9 +5,6 @@ use App\Models\Device;
 use App\Models\DeviceCommand;
 use Illuminate\Support\Facades\Log;
 
-
-
-
 class DeviceCommandService
 {
     public const COMMANDS = [
@@ -266,9 +263,35 @@ class DeviceCommandService
 
         $status = $returnCode === 0 ? 'success' : 'failed';
 
+        // If command was successful and it's a data query, trigger data processing
+        if ($status === 'success') {
+            $device = Device::where('serial_number', $command->device_sn)->first();
+
+            if ($device) {
+                // Check if response contains attendance data
+                if (strpos($command->command, 'ATTLOG') !== false && ! empty($response)) {
+                    Log::info('📊 Processing attendance data from command response', [
+                        'device'          => $device->serial_number,
+                        'response_length' => strlen($response),
+                    ]);
+                    // Trigger attendance log processing
+                    app(DeviceOperationService::class)->processAttendanceLogs($device, $response);
+                }
+
+                // Check if response contains user data
+                if (strpos($command->command, 'USERINFO') !== false && ! empty($response)) {
+                    Log::info('👥 Processing user data from command response', [
+                        'device' => $device->serial_number,
+                    ]);
+                    app(DeviceOperationService::class)->processUserInfo($device, $response);
+                    app(DeviceOperationService::class)->updateDeviceCounts($device);
+                }
+            }
+        }
+
         $command->update([
             'status'       => $status,
-            'response'     => $response,
+            'response'     => substr($response, 0, 65535), // Trim very long responses
             'return_code'  => $returnCode,
             'completed_at' => now(),
         ]);
@@ -421,17 +444,16 @@ class DeviceCommandService
 
         // Here, we assume all devices just queue one SYNC_USER command.
         $cmd = DeviceCommand::create([
-            'device_id'    => $device->id,
-            'command'      => 'SYNC_USER',
-            'params'       => null,
-            'status'       => 'pending',
+            'device_id' => $device->id,
+            'command'   => 'SYNC_USER',
+            'params'    => null,
+            'status'    => 'pending',
         ]);
         $commands[] = $cmd;
 
         return $commands;
     }
 
-    
     /**
      * Retry failed commands for a device by re-queuing.
      *
