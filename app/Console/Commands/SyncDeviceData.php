@@ -29,21 +29,30 @@ class SyncDeviceData extends Command
         }
         
         $devices = $query->get();
-        
+
         if ($devices->isEmpty()) {
             $this->error('No devices found.');
-            return Command::FAILURE;
-        }
+            return self::FAILURE;
+        }   
         
         foreach ($devices as $device) {
+            // Ensure $device is an Eloquent Device model (not stdClass)
+            if (!($device instanceof Device)) {
+                $device = Device::find($device->id);
+                if (!$device) {
+                    $this->error("Device with ID {$device->id} not found.");
+                    continue;
+                }
+            }
+
             $this->info("Syncing device: {$device->name} ({$device->serial_number})");
-            
+
             $counts = $this->deviceService->forceSyncDeviceCounts($device);
-            
+
             $this->info("  Users: {$counts['users']}");
             $this->info("  Fingerprints: {$counts['fingerprints']}");
             $this->info("  Faces: {$counts['faces']}");
-            
+
             // Optionally trigger a manual pull
             if ($force && $device->is_online) {
                 $this->info("  Triggering manual data pull...");
