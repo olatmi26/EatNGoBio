@@ -165,7 +165,6 @@ class ADMSController extends Controller
     {
         $table   = $request->query('table') ?? $request->input('table');
         $rawBody = $request->getContent();
-
         if ($table === 'ATTLOG') {
             $count = $this->processAttendanceLogs($device, $rawBody);
             $this->operationService->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} records");
