@@ -12,8 +12,6 @@ use Illuminate\Support\Facades\Redirect;
 class SalaryStructureController extends Controller
 {
 
-  
-
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -156,18 +154,30 @@ class SalaryStructureController extends Controller
         $structure->load(['components.salaryComponent']);
 
         return response()->json([
-            'structure'  => $structure,
-            'components' => $structure->components->map(function ($comp) {
-                return [
-                    'id'               => $comp->id,
-                    'name'             => $comp->salaryComponent->name,
-                    'code'             => $comp->salaryComponent->code,
-                    'type'             => $comp->salaryComponent->type,
-                    'calculation_type' => $comp->calculation_type,
-                    'value'            => $comp->value,
-                    'is_active'        => $comp->is_active,
-                ];
-            }),
+            'structure'  => [
+                'id'               => $structure->id,
+                'name'             => $structure->name,
+                'code'             => $structure->code,
+                'description'      => $structure->description,
+                'basic_salary_min' => $structure->basic_salary_min,
+                'basic_salary_max' => $structure->basic_salary_max,
+                'is_active'        => $structure->is_active,
+            ],
+            'components' => $structure->components
+                ->where('is_active', true)
+                ->map(function ($comp) {
+                    return [
+                        'id'               => $comp->id,
+                        'name'             => $comp->salaryComponent->name ?? 'Unknown',
+                        'code'             => $comp->salaryComponent->code ?? 'N/A',
+                        'type'             => $comp->salaryComponent->type ?? 'allowance',
+                        'calculation_type' => $comp->calculation_type,
+                        'value'            => (float) $comp->value,
+                        'is_active'        => (bool) $comp->is_active,
+                    ];
+                })
+                ->values()
+                ->toArray(),
         ]);
     }
 

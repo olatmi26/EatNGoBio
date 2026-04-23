@@ -8,8 +8,6 @@ import AddSalaryStructureModal from "./Components/AddSalaryStructureModal";
 import EditCompensationModal from "./Components/EditCompensationModal";
 import ViewSalaryStructureModal from "./Components/ViewSalaryStructureModal";
 
-
-
 import type {
     PageProps,
     PayrollSettings as PayrollSettingsType,
@@ -247,7 +245,11 @@ export default function PayrollSettingsIndex() {
         newBrackets[index] = {
             ...newBrackets[index],
             [field]:
-                field === "max" && value === "" ? null : parseFloat(value) || 0,
+                field === "max" && (value === "" || value === null)
+                    ? null
+                    : field === "rate"
+                      ? parseFloat(value) || 0
+                      : parseInt(value) || 0,
         };
         setTaxBrackets(newBrackets);
     };
@@ -292,6 +294,8 @@ export default function PayrollSettingsIndex() {
 
     const saveTaxBrackets = () => {
         setIsSaving(true);
+
+        // Validate brackets don't overlap
         for (let i = 0; i < taxBrackets.length - 1; i++) {
             if (
                 taxBrackets[i].max &&
@@ -307,9 +311,19 @@ export default function PayrollSettingsIndex() {
             }
         }
 
+        // Clean brackets data before sending
+        const cleanBrackets = taxBrackets.map((bracket) => ({
+            min: Number(bracket.min),
+            max:
+                bracket.max === null || bracket.max === ""
+                    ? null
+                    : Number(bracket.max),
+            rate: Number(bracket.rate),
+        }));
+
         router.post(
             route("settings.payroll.tax-brackets.update"),
-            { brackets: JSON.stringify(taxBrackets) },
+            { brackets: cleanBrackets }, // Send as array, not JSON string
             {
                 onSuccess: () => {
                     showToast(
@@ -319,11 +333,17 @@ export default function PayrollSettingsIndex() {
                     );
                     setIsSaving(false);
                 },
-                onError: () => {
+                onError: (errors: any) => {
+                    const message =
+                        errors?.brackets ||
+                        errors?.message ||
+                        "Failed to update tax brackets";
                     showToast(
                         "error",
                         "Error",
-                        "Failed to update tax brackets",
+                        typeof message === "string"
+                            ? message
+                            : "Failed to update tax brackets",
                     );
                     setIsSaving(false);
                 },

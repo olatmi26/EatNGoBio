@@ -128,26 +128,46 @@ class PayrollSettingsController extends Controller
      */
     public function updateTaxBrackets(Request $request)
     {
-        $validated = $request->validate([
-            'brackets'        => 'required|array',
-            'brackets.*.min'  => 'required|numeric|min:0',
-            'brackets.*.max'  => 'nullable|numeric|gt:brackets.*.min',
-            'brackets.*.rate' => 'required|numeric|min:0|max:100',
-        ]);
+        // Handle both JSON string and array input
+        $bracketsInput = $request->input('brackets');
+
+        // If brackets is a JSON string (from frontend), decode it
+        if (is_string($bracketsInput)) {
+            $bracketsInput = json_decode($bracketsInput, true);
+        }
+
+        // Validate the brackets
+        if (! is_array($bracketsInput)) {
+            return back()->with('error', 'Invalid brackets format.');
+        }
+
+        // Validate each bracket
+        foreach ($bracketsInput as $index => $bracket) {
+            $validator = validator($bracket, [
+                'min'  => 'required|numeric|min:0',
+                'max'  => 'nullable|numeric|gt:min',
+                'rate' => 'required|numeric|min:0|max:100',
+            ]);
+
+            if ($validator->fails()) {
+                return back()->with('error', "Invalid bracket at position " . ($index + 1) . ": " . implode(', ', $validator->errors()->all()));
+            }
+        }
 
         // Sort brackets by min value
-        $brackets = collect($validated['brackets'])
+        $brackets = collect($bracketsInput)
             ->sortBy('min')
             ->values()
             ->toArray();
 
+        // Save to database
         PayrollSetting::set('tax.brackets', $brackets);
 
         // Refresh calculator cache
         $this->calculator->refreshSettings();
 
         return redirect()
-            ->route('settings.payroll.index')
+            ->route('settings.payroll.index', ['tab' => 'payroll-config'])
             ->with('success', 'Tax brackets updated successfully.');
     }
 

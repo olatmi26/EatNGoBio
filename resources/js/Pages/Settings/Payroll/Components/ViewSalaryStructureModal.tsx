@@ -59,13 +59,30 @@ export default function ViewSalaryStructureModal({
                     headers: {
                         Accept: "application/json",
                         "X-Requested-With": "XMLHttpRequest",
+                        "Content-Type": "application/json",
                     },
+                    credentials: 'same-origin',
                 },
             );
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`HTTP ${response.status}: ${errorText}`);
+                throw new Error(`HTTP ${response.status}: Failed to fetch components`);
+            }
+            
             const data = await response.json();
-            setComponents(data.components || []);
+            console.log('Fetched components:', data); // Debug log
+            
+            if (data.components && Array.isArray(data.components)) {
+                setComponents(data.components);
+            } else {
+                console.warn('No components array in response:', data);
+                setComponents([]);
+            }
         } catch (error) {
             console.error("Failed to fetch components:", error);
+            setComponents([]);
         }
         setLoading(false);
     };

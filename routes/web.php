@@ -19,7 +19,6 @@ use App\Http\Controllers\SalaryStructureController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\UserLocationAccessController;
-use App\Models\Device;
 use Illuminate\Support\Facades\Route;
 
 // =========================================================================
@@ -221,6 +220,12 @@ Route::middleware(['auth'])->group(function () {
             ->name('structures.toggle');
         Route::delete('structures/{structure}', [SalaryStructureController::class, 'destroy'])
             ->name('structures.destroy');
+
+        Route::get('structures/{structure}', [SalaryStructureController::class, 'show'])
+            ->name('structures.show');
+
+        Route::put('structures/{structure}', [SalaryStructureController::class, 'update'])
+            ->name('structures.update');
     });
 
     // Settings & User Management
