@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Employee extends Model
 {
-   protected $fillable = [
+    protected $fillable = [
         'employee_id',
         'first_name',
         'last_name',
@@ -134,5 +134,42 @@ class Employee extends Model
     public function device(): BelongsTo
     {
         return $this->belongsTo(Device::class, 'source_device_sn', 'serial_number');
+    }
+
+    // In Employee.php
+    public function biometricTemplates(): HasMany
+    {
+        return $this->hasMany(BiometricTemplate::class);
+    }
+
+    public function fingerprints(): HasMany
+    {
+        return $this->biometricTemplates()->where('type', 'fingerprint');
+    }
+
+    public function faceTemplates(): HasMany
+    {
+        return $this->biometricTemplates()->where('type', 'face');
+    }
+
+    public function compensations(): HasMany
+    {
+        return $this->hasMany(EmployeeCompensation::class, 'employee_id', 'employee_id');
+    }
+
+    public function activeCompensation(): HasOne
+    {
+        return $this->hasOne(EmployeeCompensation::class, 'employee_id', 'employee_id')
+            ->where('status', 'active')
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now());
+            })
+            ->latest('effective_date');
+    }
+
+    public function salaryHistory(): HasMany
+    {
+        return $this->hasMany(EmployeeSalaryHistory::class, 'employee_id', 'employee_id');
     }
 }

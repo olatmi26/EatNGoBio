@@ -6,16 +6,23 @@ use App\Events\DeviceStatusChanged;
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\DeviceCommand;
-use App\Models\DeviceSyncLog;
 use App\Models\Employee;
 use App\Models\PendingDevice;
-use Carbon\Carbon;
+use App\Services\DeviceCommandService;
+use App\Services\DeviceOperationService;
+use App\Services\LocationAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class ADMSController extends Controller
 {
+    public function __construct(
+        private DeviceOperationService $operationService,
+        private DeviceCommandService $commandService,
+        private LocationAccessService $locationAccess
+    ) {}
+
     /**
      * GET/POST /iclock/cdata — Device registration / handshake / data push
      */
@@ -52,7 +59,7 @@ class ADMSController extends Controller
             // Track previous status
             $wasOnline = $device->status === 'online';
 
-            // Update device
+            // Update device with data from handshake
             $device->update([
                 'last_seen'  => now(),
                 'ip_address' => $ip,
@@ -70,6 +77,7 @@ class ADMSController extends Controller
                 'face_count' => $device->face_count,
             ]);
 
+            // Fire status change event (throttled)
             $this->fireDeviceStatusEvent($device, $wasOnline);
 
             // Handle POST data
@@ -82,7 +90,7 @@ class ADMSController extends Controller
                 return $this->sendHandshakeResponse($device);
             }
 
-            $this->writeSyncLog($device, 'heartbeat', 0, 'success', null, 'Heartbeat OK');
+            $this->operationService->writeSyncLog($device, 'heartbeat', 0, 'success', null, 'Heartbeat OK');
             return response("OK", 200)->header('Content-Type', 'text/plain');
 
         } catch (\Exception $e) {
@@ -95,7 +103,7 @@ class ADMSController extends Controller
     }
 
     /**
-     * Handle unknown device
+     * Handle unknown device - save to pending
      */
     private function handleUnknownDevice(string $sn, string $ip, string $firmware, string $model, ?string $options)
     {
@@ -155,23 +163,159 @@ class ADMSController extends Controller
 
         if ($table === 'ATTLOG') {
             $count = $this->processAttendanceLogs($device, $rawBody);
-            $this->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} records");
+            $this->operationService->writeSyncLog($device, 'attendance', $count, 'success', null, "{$count} records");
+            Log::info('✅ ATTLOG processed', ['sn' => $device->serial_number, 'count' => $count]);
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
         if ($table === 'USERINFO') {
-            $count = $this->processUserInfo($device, $rawBody);
-            $this->writeSyncLog($device, 'user_sync', $count, 'success', null, "{$count} users");
+            $count = $this->operationService->processUserInfo($device, $rawBody);
+            $this->operationService->writeSyncLog($device, 'user_sync', $count, 'success', null, "{$count} users");
+            Log::info('✅ USERINFO processed', ['sn' => $device->serial_number, 'count' => $count]);
             return response("OK: {$count}", 200)->header('Content-Type', 'text/plain');
         }
 
         if ($table === 'OPERLOG') {
-            $this->processOperationLog($device, $rawBody);
+            $stats = $this->operationService->processOperationLog($device, $rawBody);
+            $this->operationService->writeSyncLog($device, 'oplog', 0, 'success', null,
+                "USER:{$stats['users']} FP:{$stats['fingerprints']} FACE:{$stats['faces']}");
             return response("OK", 200)->header('Content-Type', 'text/plain');
         }
 
         Log::warning('⚠️ Unknown table', ['sn' => $device->serial_number, 'table' => $table]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
+    }
+
+    /**
+     * Process attendance logs with location validation
+     */
+    private function processAttendanceLogs(Device $device, string $body): int
+    {
+        $lines = array_filter(explode("\n", trim($body)));
+        if (empty($lines)) {
+            return 0;
+        }
+
+        $saved = 0;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) {
+                continue;
+            }
+
+            // Parse ZK attendance log format
+            // Format: PIN,YYYY-MM-DD HH:MM:SS,Verify Mode,In/Out Mode,Work Code
+            $parts = explode(",", $line);
+            if (count($parts) < 5) {
+                Log::warning('⚠️ Invalid ATTLOG line format', ['line' => $line]);
+                continue;
+            }
+
+            $pin       = trim($parts[0]);
+            $dateTime  = trim($parts[1]);
+            $verify    = trim($parts[2]);       // 0=fingerprint, 1=password, 2=card, etc.
+            $punchType = (int) trim($parts[3]); // 0=check-in, 1=check-out, 2=break-out, 3=break-in
+            $workCode  = trim($parts[4] ?? '');
+
+            try {
+                $punchTime = \Carbon\Carbon::parse($dateTime);
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Invalid datetime format', ['line' => $line, 'datetime' => $dateTime]);
+                continue;
+            }
+
+            // Find employee
+            $employee = Employee::where('employee_id', $pin)->first();
+
+            if ($employee) {
+                // Validate location access
+                $accessCheck = $this->locationAccess->canAccessDevice($employee, $device);
+
+                if (! $accessCheck) {
+                    Log::warning('🚫 Punch rejected: Location access denied', [
+                        'employee_id' => $pin,
+                        'device'      => $device->serial_number,
+                        'device_area' => $device->area ?? 'N/A',
+                    ]);
+
+                    // Log as failed attempt
+                    AttendanceLog::create([
+                        'device_id'      => $device->id,
+                        'device_sn'      => $device->serial_number,
+                        'employee_pin'   => $pin,
+                        'employee_id'    => $employee->id,
+                        'punch_time'     => $punchTime,
+                        'punch_type'     => $punchType,
+                        'verify_type'    => $verify,
+                        'work_code'      => $workCode,
+                        'raw_line_data'  => $line,
+                        'status'         => 'failed',
+                        'failure_reason' => 'Location access denied',
+                    ]);
+
+                    continue;
+                }
+
+                // Validate shift timing
+                $punchTypeStr = $punchType === 0 ? 'check_in' : ($punchType === 1 ? 'check_out' : 'other');
+                $shiftCheck   = $this->locationAccess->validatePunch($employee, $device, $punchTypeStr);
+
+                if (! $shiftCheck['valid']) {
+                    Log::warning('🚫 Punch rejected: ' . $shiftCheck['error'], [
+                        'employee_id' => $pin,
+                        'device'      => $device->serial_number,
+                    ]);
+
+                    AttendanceLog::create([
+                        'device_id'      => $device->id,
+                        'device_sn'      => $device->serial_number,
+                        'employee_pin'   => $pin,
+                        'employee_id'    => $employee->id,
+                        'punch_time'     => $punchTime,
+                        'punch_type'     => $punchType,
+                        'verify_type'    => $verify,
+                        'work_code'      => $workCode,
+                        'raw_line_data'  => $line,
+                        'status'         => 'failed',
+                        'failure_reason' => $shiftCheck['error'],
+                    ]);
+
+                    continue;
+                }
+            } else {
+                Log::warning('⚠️ Employee not found for PIN', ['pin' => $pin, 'device' => $device->serial_number]);
+            }
+
+            // Save successful attendance log
+            $attendanceLog = AttendanceLog::create([
+                'device_id'      => $device->id,
+                'device_sn'      => $device->serial_number,
+                'employee_pin'   => $pin,
+                'employee_id'    => $employee?->id,
+                'punch_time'     => $punchTime,
+                'punch_type'     => $punchType,
+                'verify_type'    => $verify,
+                'work_code'      => $workCode,
+                'raw_line_data'  => $line,
+                'status'         => 'success',
+                'failure_reason' => null,
+            ]);
+
+            // Fire attendance recorded event
+            event(new AttendanceRecorded($attendanceLog));
+
+            $saved++;
+        }
+
+        Log::info('📝 Attendance logs processed', [
+            'device_sn'   => $device->serial_number,
+            'total_lines' => count($lines),
+            'saved'       => $saved,
+            'rejected'    => count($lines) - $saved,
+        ]);
+
+        return $saved;
     }
 
     /**
@@ -205,278 +349,6 @@ class ADMSController extends Controller
     }
 
     /**
-     * Process attendance logs
-     */
-    private function processAttendanceLogs(Device $device, string $body): int
-    {
-        $lines = array_filter(explode("\n", trim($body)));
-        if (empty($lines)) {
-            return 0;
-        }
-
-        $saved = 0;
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (! $line) {
-                continue;
-            }
-
-            $parts = preg_split('/[\t ]+/', $line);
-            if (count($parts) < 3) {
-                continue;
-            }
-
-            $pin      = $parts[0];
-            $dateTime = trim(($parts[1] ?? '') . ' ' . ($parts[2] ?? ''));
-            $status   = (int) ($parts[3] ?? 0);
-            $verify   = (int) ($parts[4] ?? 1);
-            $workCode = $parts[5] ?? '0';
-
-            // Sanitize punch_type
-            $punchType = $status > 5 ? 0 : $status;
-
-            try {
-                $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
-            } catch (\Exception $e) {
-                continue;
-            }
-
-            // Check duplicate
-            $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
-            if (Cache::has($cacheKey)) {
-                continue;
-            }
-
-            $exists = AttendanceLog::where('device_sn', $device->serial_number)
-                ->where('employee_pin', $pin)
-                ->where('punch_time', $punchTime)
-                ->exists();
-
-            if ($exists) {
-                Cache::put($cacheKey, true, now()->addHours(24));
-                continue;
-            }
-
-            // Find or create employee
-            $employee = $this->findOrCreateEmployee($pin, $device);
-
-            // Create attendance log
-            $log = AttendanceLog::create([
-                'device_id'     => $device->id,
-                'device_sn'     => $device->serial_number,
-                'employee_pin'  => $pin,
-                'employee_id'   => $employee->id,
-                'punch_time'    => $punchTime,
-                'punch_type'    => $punchType,
-                'verify_type'   => $verify,
-                'work_code'     => $workCode,
-                'raw_line_data' => $line,
-            ]);
-
-            Cache::put($cacheKey, true, now()->addHours(24));
-            $saved++;
-
-            event(new AttendanceRecorded($log));
-        }
-
-        return $saved;
-    }
-
-    /**
-     * Process USERINFO data
-     */
-    private function processUserInfo(Device $device, string $body): int
-    {
-        $lines = preg_split("/\r\n|\n|\r/", trim($body));
-        $count = 0;
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '') {
-                continue;
-            }
-
-            $parts = explode("\t", $line);
-            if (count($parts) < 2) {
-                continue;
-            }
-
-            $pin     = $parts[0];
-            $name    = $parts[1] ?? '';
-            $card    = $parts[3] ?? null;
-            $pri     = $parts[6] ?? '0';
-            $enabled = $parts[7] ?? '1';
-
-            $this->syncEmployeeFromDevice($pin, $name, $card, $device, $enabled === '1');
-            $count++;
-        }
-
-        $this->updateDeviceUserCount($device);
-        return $count;
-    }
-
-    /**
-     * Process OPERLOG (includes USER data)
-     */
-    private function processOperationLog(Device $device, string $body): void
-    {
-        Log::info("📋 OPERLOG received", ['sn' => $device->serial_number, 'length' => strlen($body)]);
-        
-        $lines = preg_split("/\r\n|\n|\r/", trim($body));
-        $userCount = 0;
-    
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if (empty($line)) continue;
-    
-            // Check for USER data
-            if (strpos($line, 'USER') === 0) {
-                Log::info("👤 Found USER line", ['line' => substr($line, 0, 100)]);
-                
-                // Parse PIN
-                if (preg_match('/PIN=(\d+)/i', $line, $matches)) {
-                    $pin = $matches[1];
-                    
-                    // Parse Name
-                    $name = '';
-                    if (preg_match('/Name=([^\t\r\n]+)/i', $line, $nameMatches)) {
-                        $name = trim($nameMatches[1]);
-                    }
-                    
-                    // Parse Card
-                    $card = null;
-                    if (preg_match('/Card=([^\t\r\n]*)/i', $line, $cardMatches)) {
-                        $card = trim($cardMatches[1]) ?: null;
-                    }
-                    
-                    Log::info("✅ Parsed USER", ['pin' => $pin, 'name' => $name]);
-                    
-                    // Sync employee
-                    $this->syncEmployeeFromDevice($pin, $name, $card, $device, true);
-                    $userCount++;
-                }
-            }
-        }
-    
-        if ($userCount > 0) {
-            $this->updateDeviceUserCount($device);
-            Log::info("📊 Updated user count after OPERLOG", ['count' => $userCount]);
-        }
-    
-        $this->writeSyncLog($device, 'oplog', 0, 'success', null, 'OPERLOG processed');
-    }
-
-    /**
-     * Parse USER line from OPERLOG
-     * Format: USER PIN=1 Name=taiwo Pri=14 Passwd= Card= Grp=1
-     */
-    private function parseUserLine(string $line, &$pin, &$name, &$card, &$pri): bool
-    {
-        // Extract PIN
-        if (! preg_match('/PIN=(\d+)/i', $line, $matches)) {
-            return false;
-        }
-        $pin = $matches[1];
-
-        // Extract Name
-        if (preg_match('/Name=([^\s]+)/i', $line, $matches)) {
-            $name = $matches[1];
-        } else {
-            $name = '';
-        }
-
-        // Extract Card
-        if (preg_match('/Card=([^\s]+)/i', $line, $matches)) {
-            $card = $matches[1];
-        } else {
-            $card = null;
-        }
-
-        // Extract Pri
-        if (preg_match('/Pri=(\d+)/i', $line, $matches)) {
-            $pri = $matches[1];
-        } else {
-            $pri = '0';
-        }
-
-        return true;
-    }
-
-    /**
-     * Find or create employee
-     */
-    private function findOrCreateEmployee(string $pin, Device $device): Employee
-    {
-        $employee = Employee::where('employee_id', $pin)->first();
-
-        if ($employee) {
-            // Update device association
-            $employee->update(['source_device_sn' => $device->serial_number]);
-            return $employee;
-        }
-
-        // Create new
-        return Employee::create([
-            'employee_id'      => $pin,
-            'first_name'       => 'PIN',
-            'last_name'        => $pin,
-            'source_device_sn' => $device->serial_number,
-            'active'           => true,
-            'employee_status'  => 'active',
-            'app_status'       => true,
-        ]);
-    }
-
-    /**
-     * Sync employee data from device
-     */
-
-    /**
-     * Update device user count
-     */
-    private function updateDeviceUserCount(Device $device): void
-    {
-        $userCount = Employee::where('source_device_sn', $device->serial_number)
-            ->distinct()
-            ->count('id');
-
-        $device->update(['user_count' => $userCount]);
-
-        Log::info('📊 Device user count updated', ['sn' => $device->serial_number, 'count' => $userCount]);
-    }
-
-    /**
-     * Write sync log
-     */
-    private function writeSyncLog(Device $device, string $type, int $records, string $status, ?string $duration, string $message): void
-    {
-        $typeMap = [
-            'attendance' => 'att',
-            'heartbeat'  => 'hb',
-            'user_sync'  => 'usr',
-            'oplog'      => 'op',
-            'upload'     => 'up',
-        ];
-
-        $shortType = $typeMap[$type] ?? substr($type, 0, 10);
-
-        $now = now();
-        DeviceSyncLog::create([
-            'device_sn'  => $device->serial_number,
-            'device_id'  => $device->id,
-            'type'       => $shortType,
-            'records'    => $records,
-            'status'     => $status,
-            'duration'   => $duration,
-            'message'    => $message,
-            'synced_at'  => $now,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-    }
-
-    /**
      * GET /iclock/getrequest — Device polls for commands
      */
     public function getRequest(Request $request)
@@ -493,7 +365,6 @@ class ADMSController extends Controller
             if ($device) {
                 $device->update(['last_seen' => now(), 'status' => 'online']);
 
-                // Check for pending commands
                 $command = DeviceCommand::where('device_sn', $sn)
                     ->where('status', 'pending')
                     ->oldest()
@@ -530,13 +401,12 @@ class ADMSController extends Controller
 
         parse_str($body, $params);
 
-        if (! empty($params['ID'])) {
-            DeviceCommand::where('id', $params['ID'])->update([
-                'status'       => (isset($params['Return']) && $params['Return'] === '0') ? 'success' : 'failed',
-                'return_code'  => $params['Return'] ?? null,
-                'response'     => $body,
-                'completed_at' => now(),
-            ]);
+        if (! empty($params['ID']) && isset($params['Return'])) {
+            $this->commandService->processResponse(
+                (int) $params['ID'],
+                $body,
+                (int) $params['Return']
+            );
         }
 
         return response("OK", 200)->header('Content-Type', 'text/plain');
@@ -556,8 +426,8 @@ class ADMSController extends Controller
         if ($table === 'USERINFO' && $sn) {
             $device = Device::where('serial_number', $sn)->first();
             if ($device) {
-                $count = $this->processUserInfo($device, $body);
-                $this->writeSyncLog($device, 'upload', $count, 'success', null, "Uploaded {$count} users");
+                $count = $this->operationService->processUserInfo($device, $body);
+                $this->operationService->writeSyncLog($device, 'upload', $count, 'success', null, "Uploaded {$count} users");
             }
         }
 
@@ -569,48 +439,7 @@ class ADMSController extends Controller
      */
     public function fdata(Request $request)
     {
+        Log::info('📦 fdata', ['query' => $request->query()]);
         return response("OK", 200)->header('Content-Type', 'text/plain');
     }
-
-    private function syncEmployeeFromDevice(string $pin, string $name, ?string $card, Device $device, bool $active): Employee
-    {
-        $nameParts = explode(' ', trim($name), 2);
-        $firstName = $nameParts[0] ?? '';
-        $lastName  = $nameParts[1] ?? '';
-
-        $employee = Employee::where('employee_id', $pin)->first();
-
-        if ($employee) {
-            $employee->update([
-                'source_device_sn' => $device->serial_number,
-                'card'             => $card ?: $employee->card,
-                'active'           => $active,
-            ]);
-
-            if (empty($employee->first_name) || $employee->first_name === 'PIN') {
-                $employee->update([
-                    'first_name' => $firstName ?: 'Employee',
-                    'last_name'  => $lastName ?: $pin,
-                ]);
-            }
-
-            Log::info('✅ Employee updated', ['pin' => $pin, 'name' => $employee->full_name]);
-        } else {
-            $employee = Employee::create([
-                'employee_id'      => $pin,
-                'first_name'       => $firstName ?: 'Employee',
-                'last_name'        => $lastName ?: $pin,
-                'card'             => $card,
-                'source_device_sn' => $device->serial_number,
-                'active'           => $active,
-                'employee_status'  => 'active',
-                'app_status'       => true,
-            ]);
-
-            Log::info('🆕 Employee created', ['pin' => $pin, 'name' => $name]);
-        }
-
-        return $employee;
-    }
-
 }

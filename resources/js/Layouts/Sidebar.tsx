@@ -120,12 +120,28 @@ const navGroups: NavGroup[] = [
         ],
     },
     {
+        group: "Payroll",
+        items: [
+            {
+                icon: "ri-money-dollar-circle-line",
+                label: "Payroll Dashboard",
+                routeName: "payroll.index",
+            },
+        ],
+    },
+    {
         group: "Settings",
+        expandable: true,
         items: [
             {
                 icon: "ri-settings-3-line",
-                label: "Settings",
+                label: "General",
                 routeName: "settings.index",
+            },
+            {
+                icon: "ri-money-dollar-circle-line",
+                label: "Payroll Settings",
+                routeName: "settings.payroll.index",
             },
         ],
     },
@@ -138,6 +154,15 @@ interface SidebarProps {
     onMobileClose?: () => void;
 }
 
+// Helper: initial expand state based on url
+function getInitialExpanded(url: string) {
+    // Use dictionary by group
+    return {
+        Organization: url.startsWith("/organization"),
+        Settings: url.startsWith("/settings")
+    };
+}
+
 export default function Sidebar({
     collapsed,
     onToggle,
@@ -147,9 +172,16 @@ export default function Sidebar({
     const { isDark } = useTheme();
     const { url } = usePage<PageProps>();
     const { auth } = usePage<PageProps>().props;
-    const [orgExpanded, setOrgExpanded] = useState(
-        url.startsWith("/organization"),
-    );
+
+    // Each expandable group maintains its own expanded state
+    const [expanded, setExpanded] = useState(() => getInitialExpanded(url));
+
+    const handleToggleExpand = (group: string) => {
+        setExpanded((prev) => ({
+            ...prev,
+            [group]: !prev[group]
+        }));
+    };
 
     const isActive = (routeName: string) => {
         try {
@@ -158,7 +190,12 @@ export default function Sidebar({
             return false;
         }
     };
-    const isOrgActive = url.startsWith("/organization");
+    const isGroupActive = (group: string) => {
+        // Mark group active if url matches prefix
+        if (group === "Organization") return url.startsWith("/organization");
+        if (group === "Settings") return url.startsWith("/settings");
+        return false;
+    };
 
     const bg = isDark ? "#111827" : "#ffffff";
     const border = isDark ? "#1f2937" : "#e5e7eb";
@@ -241,46 +278,49 @@ export default function Sidebar({
             <nav className="flex-1 overflow-y-auto py-2 px-2">
                 {navGroups.map((group) => {
                     if (group.expandable) {
+                        const groupIsExpanded = expanded[group.group] || false;
+                        const groupIsActive = isGroupActive(group.group);
+
                         return (
                             <div key={group.group} className="mb-0.5">
                                 <button
                                     onClick={() =>
                                         !effectiveCollapsed &&
-                                        setOrgExpanded(!orgExpanded)
+                                        handleToggleExpand(group.group)
                                     }
                                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all whitespace-nowrap"
                                     style={{
-                                        background: isOrgActive
+                                        background: groupIsActive
                                             ? activeBg
                                             : "transparent",
-                                        color: isOrgActive
+                                        color: groupIsActive
                                             ? activeColor
                                             : textSecondary,
                                     }}
                                     onMouseEnter={(e) => {
-                                        if (!isOrgActive)
+                                        if (!groupIsActive)
                                             (
                                                 e.currentTarget as HTMLButtonElement
                                             ).style.background = hoverBg;
                                     }}
                                     onMouseLeave={(e) => {
-                                        if (!isOrgActive)
+                                        if (!groupIsActive)
                                             (
                                                 e.currentTarget as HTMLButtonElement
                                             ).style.background = "transparent";
                                     }}
                                 >
                                     <div className="w-5 h-5 flex items-center justify-center flex-shrink-0">
-                                        <i className="ri-building-line text-base"></i>
+                                        <i className={`${group.icon ?? "ri-building-line"} text-base`}></i>
                                     </div>
                                     {!effectiveCollapsed && (
                                         <>
                                             <span className="text-sm font-medium flex-1 text-left">
-                                                Organization
+                                                {group.group}
                                             </span>
                                             <i
                                                 className={
-                                                    orgExpanded
+                                                    groupIsExpanded
                                                         ? "ri-arrow-up-s-line text-sm"
                                                         : "ri-arrow-down-s-line text-sm"
                                                 }
@@ -288,7 +328,7 @@ export default function Sidebar({
                                         </>
                                     )}
                                 </button>
-                                {!effectiveCollapsed && orgExpanded && (
+                                {!effectiveCollapsed && groupIsExpanded && (
                                     <div
                                         className="ml-4 mt-0.5 pl-3"
                                         style={{

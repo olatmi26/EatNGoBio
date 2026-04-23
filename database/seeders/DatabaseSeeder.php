@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
            // TicketAndAlertSeeder::class,     // needs assets, locations, users
            // VendorSeeder::class,
             //SettingsSeeder::class,
+            // SalaryComponentSeeder::class,
         ]);
     }
 }

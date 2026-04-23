@@ -1,19 +1,26 @@
 <?php
-
 namespace App\Observers;
 
 use App\Models\Employee;
 use App\Models\Shift;
 use App\Models\ShiftAssignment;
+use App\Services\EmployeeSyncService;
 
 class EmployeeObserver
 {
+    public function __construct(
+        private EmployeeSyncService $syncService
+    ) {}
+
     /**
      * Handle the Employee "created" event.
      */
     public function created(Employee $employee): void
     {
-        $this->autoAssignToShifts($employee);
+        // Auto-sync newly created employee to relevant devices
+        if ($employee->active) {
+            $this->syncService->syncEmployeeToDevices($employee);
+        }
     }
 
     /**
@@ -21,9 +28,35 @@ class EmployeeObserver
      */
     public function updated(Employee $employee): void
     {
-        // If area changed, reassign
-        if ($employee->isDirty('area')) {
-            $this->autoAssignToShifts($employee);
+        // Re-sync if critical fields changed
+        $criticalChanges = ['first_name', 'last_name', 'card', 'area', 'biometric_areas', 'active'];
+
+        if ($employee->wasChanged($criticalChanges)) {
+            if ($employee->active) {
+                $this->syncService->syncEmployeeToDevices($employee);
+            } else {
+                // If deactivated, remove from devices
+                $this->syncService->deleteEmployeeFromDevices($employee);
+            }
+        }
+    }
+
+    /**
+     * Handle the Employee "deleted" event.
+     */
+    public function deleted(Employee $employee): void
+    {
+        // Remove employee from all devices
+        $this->syncService->deleteEmployeeFromDevices($employee);
+    }
+
+    /**
+     * Handle the Employee "restored" event.
+     */
+    public function restored(Employee $employee): void
+    {
+        if ($employee->active) {
+            $this->syncService->syncEmployeeToDevices($employee);
         }
     }
 
@@ -32,7 +65,7 @@ class EmployeeObserver
      */
     private function autoAssignToShifts(Employee $employee): void
     {
-        if (!$employee->active || !$employee->area) {
+        if (! $employee->active || ! $employee->area) {
             return;
         }
 
@@ -52,7 +85,7 @@ class EmployeeObserver
                 })
                 ->exists();
 
-            if (!$existing) {
+            if (! $existing) {
                 ShiftAssignment::create([
                     'employee_id'    => $employee->id,
                     'shift_id'       => $shift->id,

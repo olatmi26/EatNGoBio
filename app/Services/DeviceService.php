@@ -8,46 +8,61 @@ use App\Models\DeviceSyncLog;
 use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class DeviceService
 {
     /**
-     * Get paginated device list with optional filters.
+     * Get paginated device list with access control
      */
-    public function deviceListPaginated(string $search = '', string $status = '', int $perPage = 15): LengthAwarePaginator
+    public function deviceListPaginated(string $search = '', string $status = '', int $perPage = 15, ?User $user = null): LengthAwarePaginator
     {
-        // Always fetch ALL devices for client-side filtering
         $query = Device::with('location')
+            ->when($user && ! $user->hasRole('Super Admin'), function ($q) use ($user) {
+                // Apply access control
+                $accessibleAreas       = $user->getAccessibleAreas();
+                $accessibleLocationIds = $user->getAccessibleLocationIds();
+
+                $q->where(function ($subQ) use ($accessibleAreas, $accessibleLocationIds) {
+                    if (! empty($accessibleAreas)) {
+                        $subQ->whereIn('area', $accessibleAreas);
+                    }
+                    if (! empty($accessibleLocationIds)) {
+                        $subQ->orWhereIn('location_id', $accessibleLocationIds);
+                    }
+                });
+            })
+            ->when($search, function ($query, $search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                        ->orWhere('serial_number', 'like', "%{$search}%")
+                        ->orWhere('area', 'like', "%{$search}%")
+                        ->orWhere('ip_address', 'like', "%{$search}%");
+                });
+            })
+            ->when($status, function ($query, $status) {
+                if ($status === 'online') {
+                    $query->where('approved', true)
+                        ->whereNotNull('last_seen')
+                        ->whereRaw('last_seen > DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
+                } elseif ($status === 'offline') {
+                    $query->where('approved', true)
+                        ->where(function ($q) {
+                            $q->whereNull('last_seen')
+                                ->orWhereRaw('last_seen <= DATE_SUB(NOW(), INTERVAL (heartbeat_interval * 2 + 30) SECOND)');
+                        });
+                } elseif ($status === 'unregistered') {
+                    $query->where('approved', false);
+                }
+            })
             ->orderBy('name');
 
-        $allDevices = $query->get()->map(fn($d) => $this->formatDevice($d));
+        $paginator = $query->paginate($perPage);
+        $paginator->getCollection()->transform(fn($d) => $this->formatDevice($d));
 
-        // Apply server-side filters if needed (optional - can be removed)
-        $filtered = $allDevices;
-        if ($search) {
-            $filtered = $filtered->filter(fn($d) =>
-                stripos($d['name'], $search) !== false ||
-                stripos($d['sn'], $search) !== false ||
-                stripos($d['area'], $search) !== false
-            );
-        }
-        if ($status) {
-            $filtered = $filtered->filter(fn($d) => $d['status'] === $status);
-        }
-
-        // Manual pagination
-        $page      = request()->get('page', 1);
-        $paginated = $filtered->forPage($page, $perPage);
-
-        return new LengthAwarePaginator(
-            $paginated->values(),
-            $filtered->count(),
-            $perPage,
-            $page,
-            ['path' => request()->url(), 'query' => request()->query()]
-        );
+        return $paginator;
     }
 
     /**
@@ -58,7 +73,13 @@ class DeviceService
         return Device::with('location')
             ->orderBy('name')
             ->get()
-            ->map(fn($d) => $this->formatDevice($d))
+            ->map(function ($d) {
+                // Ensure $d is an Eloquent Model (App\Models\Device)
+                if (! ($d instanceof Device)) {
+                    $d = Device::find($d->id);
+                }
+                return $this->formatDevice($d);
+            })
             ->toArray();
     }
 
@@ -314,18 +335,37 @@ class DeviceService
     }
 
     /**
-     * Get device statistics for dashboard/widgets.
+     * Get stats with access control
      */
-    public function getStats(): array
+    public function getStats(?User $user = null): array
     {
-        $totalDevices  = Device::count();
-        $onlineDevices = Device::where('approved', true)->get()->filter(fn($d) => $d->is_online)->count();
+        $query = Device::query();
+
+        if ($user && ! $user->hasRole('Super Admin')) {
+            $accessibleAreas       = $user->getAccessibleAreas();
+            $accessibleLocationIds = $user->getAccessibleLocationIds();
+
+            $query->where(function ($q) use ($accessibleAreas, $accessibleLocationIds) {
+                if (! empty($accessibleAreas)) {
+                    $q->whereIn('area', $accessibleAreas);
+                }
+                if (! empty($accessibleLocationIds)) {
+                    $q->orWhereIn('location_id', $accessibleLocationIds);
+                }
+            });
+        }
+
+        $totalDevices  = $query->count();
+        $onlineDevices = (clone $query)->where('approved', true)
+            ->get()
+            ->filter(fn($d) => $d->is_online)
+            ->count();
 
         return [
             'total'      => $totalDevices,
             'online'     => $onlineDevices,
-            'offline'    => Device::where('approved', true)->count() - $onlineDevices,
-            'totalUsers' => Device::sum('user_count'),
+            'offline'    => $totalDevices - $onlineDevices,
+            'totalUsers' => (clone $query)->sum('user_count'),
             'pending'    => PendingDevice::where('status', 'pending')->count(),
         ];
     }

@@ -5,6 +5,8 @@ use App\Models\Device;
 use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
+use App\Services\DeviceCommandService;
+use App\Services\DeviceOperationService;
 use App\Services\DeviceService;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +18,9 @@ use Inertia\Response;
 class DeviceController extends Controller
 {
     public function __construct(
-        private DeviceService $service,
+        private DeviceService $deviceService,
+        private DeviceOperationService $operationService,
+        private DeviceCommandService $commandService,
         private NotificationService $notifs,
     ) {}
 
@@ -26,22 +30,41 @@ class DeviceController extends Controller
         $search  = $request->input('search', '');
         $status  = $request->input('status', '');
 
-        $devices         = $this->service->deviceListPaginated($search, $status, $perPage);
-        $stats           = $this->service->getStats();
-        $deviceAnalytics = $this->service->deviceStats();
+        $devices         = $this->deviceService->deviceListPaginated($search, $status, $perPage);
+        $stats           = $this->deviceService->getStats();
+        $deviceAnalytics = $this->deviceService->deviceStats();
 
         return Inertia::render('Devices/Index', [
             'devices'         => $devices,
-            'pendingDevices'  => $this->service->pendingDevices(),
+            'pendingDevices'  => $this->deviceService->pendingDevices(),
             'areas'           => Location::orderBy('name')->get(['id', 'name', 'code']),
-            'unreadCount'     => $this->notifs->unreadCount(auth()->id()),
+            'unreadCount'     => $this->notifs->unreadCount($request->user()->id),
             'stats'           => $stats,
             'deviceAnalytics' => $deviceAnalytics,
+            'availableCommands' => $this->commandService->getAvailableCommands(),
             'filters'         => [
                 'search'   => $search,
                 'status'   => $status,
                 'per_page' => $perPage,
             ],
+        ]);
+    }
+
+    public function show(int $id): Response
+    {
+        $device = Device::with('location')->findOrFail($id);
+        $user=auth()->user();
+
+        return Inertia::render('Devices/Detail', [
+            'device'             => $this->deviceService->formatDevice($device),
+            'punchLogs'          => $this->deviceService->getPunchLogs($device),
+            'syncHistory'        => $this->deviceService->getSyncHistory($device),
+            'commands'           => $this->commandService->getCommandHistory($device),
+            'connectedEmployees' => $this->deviceService->getConnectedEmployeesPaginated($device),
+            'employeesSummary'   => $this->deviceService->getConnectedEmployeesSummary($device),
+            'availableCommands'  => $this->commandService->getAvailableCommands(),
+            'areas'              => Location::orderBy('name')->get(['id', 'name']),
+            'unreadCount'        => $this->notifs->unreadCount($user->id),
         ]);
     }
 
@@ -57,53 +80,10 @@ class DeviceController extends Controller
             'heartbeat'    => 'nullable|integer|min:10|max:3600',
         ]);
 
-        $this->service->storeDevice($validated);
+        $this->deviceService->storeDevice($validated);
 
         return redirect()->route('devices.index')
             ->with('success', 'Device added successfully.');
-    }
-
-    public function show(Request $request, int $id): Response
-    {
-        $device = Device::with('location')->findOrFail($id);
-
-        $perPage = $request->input('per_page', 15);
-        $search  = $request->input('search', '');
-        $status  = $request->input('status', '');
-
-        // Get paginated employees
-        $employeesPaginated = $this->service->getConnectedEmployeesPaginated($device, $search, $perPage);
-        $employeesSummary   = $this->service->getConnectedEmployeesSummary($device);
-
-        // Transform employee data
-        $employeesPaginated->getCollection()->transform(fn($e) => [
-            'id'         => $e->id,
-            'employeeId' => $e->employee_id,
-            'firstName'  => $e->first_name,
-            'lastName'   => $e->last_name,
-            'fullName'   => $e->full_name,
-            'department' => $e->department ?? '-',
-            'position'   => $e->position ?? '-',
-            'area'       => $e->area ?? '-',
-            'status'     => $e->employee_status ?? 'active',
-            'initials'   => $e->initials,
-        ]);
-
-        return Inertia::render('Devices/Detail', [
-            'device'             => $this->service->formatDevice($device),
-            'punchLogs'          => $this->service->getPunchLogs($device),
-            'syncHistory'        => $this->service->getSyncHistory($device),
-            'commands'           => $this->service->getCommands($device),
-            'connectedEmployees' => $employeesPaginated,
-            'employeesSummary'   => $employeesSummary,
-            'areas'              => Location::orderBy('name')->get(['id', 'name']),
-            'unreadCount'        => $this->notifs->unreadCount(auth()->id()),
-            'filters'            => [
-                'search'   => $search,
-                'status'   => $status,
-                'per_page' => $perPage,
-            ],
-        ]);
     }
 
     public function update(Request $request, int $id): RedirectResponse
@@ -120,7 +100,7 @@ class DeviceController extends Controller
             'notes'        => 'sometimes|nullable|string',
         ]);
 
-        $this->service->updateDevice($id, $data);
+        $this->deviceService->updateDevice($id, $data);
 
         return back()->with('success', 'Device updated.');
     }
@@ -131,16 +111,115 @@ class DeviceController extends Controller
         return redirect()->route('devices.index')->with('success', 'Device removed.');
     }
 
-    public function sendCommand(Request $request, int $id): RedirectResponse
+    /**
+     * Send a command to a device
+     */
+    public function sendCommand(Request $request, int $id): RedirectResponse|JsonResponse
     {
+        $device = Device::findOrFail($id);
+
         $data = $request->validate([
             'command' => 'required|string',
             'params'  => 'nullable|string',
         ]);
 
-        $this->service->sendCommand($id, $data['command'], $data['params'] ?? null);
+        try {
+            $command = $this->commandService->sendCommand($device, $data['command'], $data['params'] ?? null);
 
-        return back()->with('success', "Command '{$data['command']}' queued.");
+            $message = "Command '{$data['command']}' queued successfully.";
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'command' => [
+                        'id' => $command->id,
+                        'command' => $command->command,
+                        'status' => $command->status,
+                    ],
+                ]);
+            }
+
+            return back()->with('success', $message);
+        } catch (\InvalidArgumentException $e) {
+            if ($request->expectsJson()) {
+                return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+            }
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Sync time with device
+     */
+    public function syncTime(int $id): RedirectResponse|JsonResponse
+    {
+        $device = Device::findOrFail($id);
+        $command = $this->commandService->syncTime($device);
+
+        $message = 'Time sync command queued.';
+
+        if (request()->expectsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'command_id' => $command->id]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Sync all users to device
+     */
+    public function syncAllUsers(int $id): RedirectResponse|JsonResponse
+    {
+        $device = Device::findOrFail($id);
+        $commands = $this->commandService->syncAllUsers($device);
+
+        $message = count($commands) . ' user sync commands queued.';
+
+        if (request()->expectsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'count' => count($commands)]);
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Get pending commands for a device
+     */
+    public function pendingCommands(int $id): JsonResponse
+    {
+        $device = Device::findOrFail($id);
+        return response()->json([
+            'commands' => $this->commandService->getPendingCommands($device),
+        ]);
+    }
+
+    /**
+     * Get command history for a device
+     */
+    public function commandHistory(int $id): JsonResponse
+    {
+        $device = Device::findOrFail($id);
+        return response()->json([
+            'history' => $this->commandService->getCommandHistory($device),
+        ]);
+    }
+
+    /**
+     * Retry failed commands
+     */
+    public function retryFailed(int $id): RedirectResponse|JsonResponse
+    {
+        $device = Device::findOrFail($id);
+        $commands = $this->commandService->retryFailedCommands($device);
+
+        $message = count($commands) . ' failed commands queued for retry.';
+
+        if (request()->expectsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'count' => count($commands)]);
+        }
+
+        return back()->with('success', $message);
     }
 
     public function approve(Request $request, int $pendingId): RedirectResponse
@@ -152,7 +231,7 @@ class DeviceController extends Controller
             'timezone'    => 'nullable|string',
         ]);
 
-        $device = $this->service->approveDevice($pendingId, $data);
+        $device = $this->deviceService->approveDevice($pendingId, $data);
 
         return redirect()->route('devices.show', $device->id)
             ->with('success', 'Device approved and registered.');
@@ -172,21 +251,21 @@ class DeviceController extends Controller
 
     public function batchApprove(): RedirectResponse
     {
-        $count = $this->service->batchApprove();
+        $count = $this->deviceService->batchApprove();
         return back()->with('success', "{$count} devices approved.");
     }
 
     public function stats(): JsonResponse
     {
         return response()->json([
-             ...$this->service->getStats(),
-            'recentActivity' => $this->service->getRecentActivity(5),
+            ...$this->deviceService->getStats(),
+            'recentActivity' => $this->deviceService->getRecentActivity(5),
         ]);
     }
 
     public function liveStats(): JsonResponse
     {
-        $devices    = $this->service->deviceList();
+        $devices    = $this->deviceService->deviceList();
         $heartbeats = collect($devices)->mapWithKeys(fn($d) => [$d['sn'] => $d['status'] === 'online' ? 1 : 0]);
 
         return response()->json([

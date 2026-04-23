@@ -32,7 +32,7 @@ class SettingsController extends Controller
             'isSystem'    => in_array($r->name, ['Super Admin']),
         ])->values();
 
-        $users = User::with('roles')->get()->map(fn($u) => [
+        $users = User::with(['managedLocations', 'managedAreas', 'roles'])->get()->map(fn($u) => [
             'id'        => $u->id,
             'name'      => $u->name,
             'email'     => $u->email,
@@ -42,6 +42,15 @@ class SettingsController extends Controller
             'lastLogin' => $u->last_login_at?->format('Y-m-d H:i') ?? '-',
             'createdAt' => $u->created_at->format('Y-m-d'),
             'avatar'    => $u->avatar,
+            'managed_locations' => $u->managedLocations->map(fn($loc) => [
+                        'id' => $loc->id,
+                        'name' => $loc->name,
+                        'code' => $loc->code,
+                    ]),
+                    'managed_areas' => $u->managedAreas->map(fn($area) => [
+                        'id' => $area->id,
+                        'area_name' => $area->area_name,
+                    ]),
         ])->values();
 
         $allPermissions = Permission::all()
@@ -71,7 +80,10 @@ class SettingsController extends Controller
                 'requestCount'  => $pd->request_count ?? 0,
                 'suggestedName' => $pd->suggested_name ?? $pd->serial_number,
             ])->values();
-
+            $areas = \App\Models\Device::whereNotNull('area')
+            ->distinct()
+            ->pluck('area')
+            ->toArray();
         return Inertia::render('Settings/Index', [
             'settings'       => $settings,
             'roles'          => $roles,
@@ -80,6 +92,8 @@ class SettingsController extends Controller
             'locations'      => $locations,
             'pendingDevices' => $pendingDevices,
             'unreadCount'    => $this->notifs->unreadCount(auth()->id()),
+            'areas' => $areas,
+            'userAccess' => $users,
         ]);
 
     }

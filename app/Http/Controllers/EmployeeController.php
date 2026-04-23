@@ -8,8 +8,11 @@ use App\Models\Location;
 use App\Models\Position;
 use App\Models\Shift;
 use App\Services\AttendanceService;
+use App\Services\EmployeeSyncService;
+use App\Services\LocationAccessService;
 use App\Services\NotificationService;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -20,7 +23,31 @@ class EmployeeController extends Controller
     public function __construct(
         private AttendanceService $attendance,
         private NotificationService $notifs,
+        private EmployeeSyncService $syncService,
+        private LocationAccessService $locationAccess
     ) {}
+
+    /**
+     * Get employee's accessible devices
+     */
+    public function accessibleDevices(int $id): JsonResponse
+    {
+        $employee = Employee::findOrFail($id);
+        return response()->json([
+            'devices' => $this->locationAccess->getEmployeeAccessibleDevices($employee),
+        ]);
+    }
+
+    /**
+     * Get employee's allowed areas
+     */
+    public function allowedAreas(int $id): JsonResponse
+    {
+        $employee = Employee::findOrFail($id);
+        return response()->json([
+            'areas' => $this->locationAccess->getEmployeeAllowedAreas($employee),
+        ]);
+    }
 
     public function index(Request $request): Response
     {
@@ -325,7 +352,8 @@ class EmployeeController extends Controller
             'area'       => $data['area'],
             'position'   => $data['position'] ?? $emp->position,
         ]);
-        $this->syncFKs(['department' => $data['department'], 'area' => $data['area']]);
+        $syncData = ['department' => $data['department'], 'area' => $data['area']];
+        $this->syncFKs($syncData);
         return back()->with('success', 'Employee transferred.');
     }
 
@@ -366,5 +394,148 @@ class EmployeeController extends Controller
             }
 
         }
+    }
+
+    /**
+     * Manually sync employee to all devices
+     */
+    public function syncToDevices(int $id): RedirectResponse
+    {
+        $employee = Employee::findOrFail($id);
+        $results  = $this->syncService->syncEmployeeToDevices($employee);
+
+        $successCount = count(array_filter($results));
+        $totalCount   = count($results);
+
+        return back()->with('success', "Employee synced to {$successCount}/{$totalCount} devices.");
+    }
+
+    /**
+     * Get employee sync status
+     */
+    public function syncStatus(int $id): JsonResponse
+    {
+        $employee = Employee::findOrFail($id);
+        return response()->json([
+            'status' => $this->syncService->getEmployeeSyncStatus($employee),
+        ]);
+    }
+
+    /**
+     * Bulk sync employees to devices
+     */
+    public function bulkSync(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'employee_ids'   => 'required|array',
+            'employee_ids.*' => 'integer|exists:employees,id',
+        ]);
+
+        $employees = Employee::whereIn('id', $request->employee_ids)->get();
+        $total     = 0;
+        $success   = 0;
+
+        foreach ($employees as $employee) {
+            // Ensure $employee is an instance of Employee, not stdClass
+            if (! ($employee instanceof Employee)) {
+                $employee = Employee::find($employee->id);
+                if (! $employee) {
+                    continue;
+                }
+            }
+            $results = $this->syncService->syncEmployeeToDevices($employee);
+            $total   += count($results);
+            $success += count(array_filter($results));
+        }
+
+        return back()->with('success', "Bulk sync completed: {$success}/{$total} device syncs successful.");
+    }
+
+    public function assignToArea(Request $request, int $id): RedirectResponse
+    {
+        $employee = Employee::findOrFail($id);
+
+        $request->validate([
+            'area' => 'required|string|max:100',
+        ]);
+
+        $areas = $employee->biometric_areas ?? [];
+        $area  = $request->input('area');
+
+        if (! in_array($area, $areas)) {
+            $areas[] = $area;
+            $employee->update(['biometric_areas' => $areas]);
+
+            // Sync to devices in this area
+            $this->syncService->syncEmployeeToDevices($employee);
+        }
+
+        return back()->with('success', "Employee assigned to area: {$area}");
+    }
+
+    /**
+     * Remove employee from area
+     */
+    public function removeFromArea(Request $request, int $id): RedirectResponse
+    {
+        $employee = Employee::findOrFail($id);
+
+        $request->validate([
+            'area' => 'required|string',
+        ]);
+
+        $removed = $this->locationAccess->removeFromArea($employee, $request->input('area'));
+
+        if ($removed) {
+            return back()->with('success', "Employee removed from area.");
+        }
+
+        return back()->with('error', "Employee not assigned to this area.");
+    }
+
+    /**
+     * Bulk assign employees to area
+     */
+    public function bulkAssignToArea(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'employee_ids'   => 'required|array',
+            'employee_ids.*' => 'integer|exists:employees,id',
+            'area'           => 'required|string',
+        ]);
+
+        $count = $this->locationAccess->bulkAssignToArea(
+            $request->input('employee_ids'),
+            $request->input('area')
+        );
+
+        return back()->with('success', "{$count} employees assigned to area.");
+    }
+
+    /**
+     * Validate if employee can punch at a location
+     */
+    public function validatePunch(Request $request): JsonResponse
+    {
+        $request->validate([
+            'employee_id' => 'required|string',
+            'device_sn'   => 'required|string',
+            'punch_type'  => 'required|in:check_in,check_out',
+        ]);
+
+        $employee = Employee::where('employee_id', $request->input('employee_id'))->first();
+        $device   = Device::where('serial_number', $request->input('device_sn'))->first();
+
+        if (! $employee || ! $device) {
+            return response()->json(['valid' => false, 'error' => 'Employee or device not found'], 404);
+        }
+
+        $validation = $this->locationAccess->validatePunch(
+            $employee,
+            $device,
+            $request->input('punch_type')
+        );
+
+        return response()->json($validation);
     }
 }

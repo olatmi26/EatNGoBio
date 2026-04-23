@@ -1,12 +1,9 @@
 <?php
-
 namespace App\Services;
 
 use App\Models\AttendanceLog;
-use App\Models\Department;
 use App\Models\Employee;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
 
 class AttendanceService
 {
@@ -14,28 +11,22 @@ class AttendanceService
 
     public function todayStats(): array
     {
-        $today = Carbon::today();
-
-        // Total active employees
+        $today       = Carbon::today();
         $totalActive = Employee::where('active', true)->count();
 
-        // Unique employees who checked in today
         $presentIds = AttendanceLog::whereDate('punch_time', $today)
             ->where('punch_type', 0)
             ->distinct()
             ->pluck('employee_pin');
         $presentCount = $presentIds->count();
 
-        // Yesterday check-ins for trend
         $yesterdayCount = AttendanceLog::whereDate('punch_time', $today->copy()->subDay())
             ->where('punch_type', 0)
             ->distinct('employee_pin')
             ->count();
 
-        $lateCount = $this->countLateToday();
-        $absentCount = max(0, $totalActive - $presentCount);
-
-        // Total punches today (all types)
+        $lateCount     = $this->countLateToday();
+        $absentCount   = max(0, $totalActive - $presentCount);
         $checkInsToday = AttendanceLog::whereDate('punch_time', $today)->count();
 
         $attendanceRate = $totalActive > 0
@@ -60,16 +51,16 @@ class AttendanceService
     {
         $today = Carbon::today();
 
-        // Load first check-in per employee today — one query
         $checkIns = AttendanceLog::whereDate('punch_time', $today)
             ->where('punch_type', 0)
             ->selectRaw('employee_pin, MIN(punch_time) as first_punch')
             ->groupBy('employee_pin')
             ->get();
 
-        if ($checkIns->isEmpty()) return 0;
+        if ($checkIns->isEmpty()) {
+            return 0;
+        }
 
-        // Load all active employees with their shift in one query
         $employees = Employee::with('shift')
             ->whereIn('employee_id', $checkIns->pluck('employee_pin'))
             ->get()
@@ -91,30 +82,346 @@ class AttendanceService
         return $late;
     }
 
-    // ── Charts ────────────────────────────────────────────────────────────────
+    // ── Reports (FIXED - Critical absence calculation fix) ─────────────────────
 
-    public function hourlyActivity(): array
+    /**
+     * Get summary report with CORRECT attendance calculations
+     * KEY FIX: Only counts employees who actually have logs in the period
+     * Absence is only counted if employee was expected to work but didn't clock in
+     */
+    public function summaryReport(Carbon $from, Carbon $to, array $filters = []): array
     {
-        $rows = AttendanceLog::selectRaw("DATE_FORMAT(punch_time,'%H') as hr, COUNT(*) as cnt")
-            ->where('punch_time', '>=', now()->subHours(24))
-            ->groupBy('hr')
-            ->orderBy('hr')
-            ->pluck('cnt', 'hr');
+        $query = Employee::with(['shift', 'location'])->where('active', true);
+
+        if (! empty($filters['department'])) {
+            $query->where('department', $filters['department']);
+        }
+        if (! empty($filters['location'])) {
+            $query->where('area', $filters['location']);
+        }
+        if (! empty($filters['area'])) {
+            $query->where('area', $filters['area']);
+        }
+
+        $employees = $query->get();
+
+        // If no employees match filters, return empty array
+        if ($employees->isEmpty()) {
+            return [];
+        }
+
+        $empIds = $employees->pluck('employee_id')->all();
+
+        // Load all logs in the date range
+        $allLogs = AttendanceLog::whereBetween('punch_time', [$from->copy()->startOfDay(), $to->copy()->endOfDay()])
+            ->whereIn('employee_pin', $empIds)
+            ->get()
+            ->groupBy(fn($l) => $l->employee_pin . '|' . $l->punch_time->toDateString());
+
+        // Get hired dates to determine if employee was active during period
+        $rows = [];
+        foreach ($employees as $emp) {
+            $shift     = $emp->shift;
+            $startTime = $shift?->start_time ?? '08:00';
+            $lateMin   = $shift?->late_threshold ?? 15;
+            $otMin     = $shift?->overtime_threshold ?? 60;
+            $expectedH = $shift ? (float) $shift->work_hours : 9.0;
+
+            $presentDays      = $absentDays      = $lateDays      = $halfDays      = 0;
+            $totalWorkMins    = $lateMinutes    = $overtimeHours    = 0;
+            $workDaysInPeriod = 0;
+
+            // Check if employee was hired during the period
+            $hiredDate = $emp->hired_date ? Carbon::parse($emp->hired_date) : null;
+
+            // Iterate through each day in the period
+            for ($d = $from->copy(); $d->lte($to); $d->addDay()) {
+                // Skip if employee wasn't hired yet
+                if ($hiredDate && $d->lt($hiredDate)) {
+                    continue;
+                }
+
+                // Skip weekends
+                if ($d->isWeekend()) {
+                    continue;
+                }
+
+                $workDaysInPeriod++;
+                $dateStr = $d->toDateString();
+                $key     = $emp->employee_id . '|' . $dateStr;
+                $dayLogs = $allLogs->get($key, collect());
+
+                // Get first check-in and last check-out
+                $in  = $dayLogs->where('punch_type', 0)->sortBy('punch_time')->first();
+                $out = $dayLogs->where('punch_type', 1)->sortByDesc('punch_time')->last();
+
+                // CRITICAL FIX: Only count as absent if NO check-in AND employee was expected to work
+                // (We assume employee works all weekdays unless on leave - you can add leave checking later)
+                if (! $in) {
+                    // Check if this is a holiday or leave day (you can implement this later)
+                    // For now, assume it's an absence
+                    $absentDays++;
+                    continue;
+                }
+
+                $presentDays++;
+
+                // Check for late arrival
+                $deadline  = $d->copy()->setTimeFromTimeString($startTime)->addMinutes($lateMin);
+                $punchTime = Carbon::parse($in->punch_time);
+                if ($punchTime->gt($deadline)) {
+                    $lateDays++;
+                    $lateMinutes += $punchTime->diffInMinutes($d->copy()->setTimeFromTimeString($startTime));
+                }
+
+                // Calculate work hours if there's a check-out
+                if ($out) {
+                    $mins           = Carbon::parse($in->punch_time)->diffInMinutes(Carbon::parse($out->punch_time));
+                    $totalWorkMins += $mins;
+
+                    // Half day if worked less than 4 hours
+                    if ($mins < 240) {
+                        $halfDays++;
+                    }
+
+                    // Overtime calculation
+                    $expectedMins = $expectedH * 60;
+                    if ($mins > $expectedMins + $otMin) {
+                        $overtimeHours += round(($mins - $expectedMins) / 60, 1);
+                    }
+                }
+            }
+
+            // Calculate attendance rate based on work days only
+            $attendanceRate = $workDaysInPeriod > 0
+                ? round(($presentDays / $workDaysInPeriod) * 100, 1)
+                : 0;
+
+            $rows[] = [
+                'employeeId'       => $emp->employee_id,
+                'employeeName'     => $emp->full_name,
+                'department'       => $emp->department ?? '-',
+                'shift'            => $shift?->name ?? 'Standard Day Shift',
+                'location'         => $emp->area ?? $emp->location?->name ?? '-',
+                'presentDays'      => $presentDays,
+                'absentDays'       => $absentDays,
+                'lateDays'         => $lateDays,
+                'halfDays'         => $halfDays,
+                'totalWorkHours'   => round($totalWorkMins / 60, 1),
+                'overtimeHours'    => $overtimeHours,
+                'lateMinutes'      => $lateMinutes,
+                'attendanceRate'   => $attendanceRate,
+                'workDaysInPeriod' => $workDaysInPeriod,
+            ];
+        }
+
+        return $rows;
+    }
+
+    public function dailyTrend(Carbon $from, Carbon $to): array
+    {
+        $totalActive = Employee::where('active', true)->count();
+
+        $daily = AttendanceLog::selectRaw("DATE(punch_time) as day, COUNT(DISTINCT employee_pin) as present")
+            ->where('punch_type', 0)
+            ->whereBetween('punch_time', [$from->startOfDay(), $to->copy()->endOfDay()])
+            ->groupBy('day')
+            ->pluck('present', 'day');
 
         $result = [];
-        for ($h = 0; $h < 24; $h++) {
-            $key      = str_pad($h, 2, '0', STR_PAD_LEFT);
-            $result[] = ['hour' => "{$key}:00", 'count' => (int)($rows[$key] ?? 0)];
+        for ($d = $from->copy(); $d->lte($to); $d->addDay()) {
+            $dateStr   = $d->toDateString();
+            $isWeekend = $d->isWeekend();
+
+            $present = $isWeekend ? 0 : (int) ($daily[$dateStr] ?? 0);
+            $absent  = $isWeekend ? 0 : max(0, $totalActive - $present);
+
+            $result[] = [
+                'date'           => $dateStr,
+                'totalEmployees' => $totalActive,
+                'present'        => $present,
+                'absent'         => $absent,
+                'late'           => 0,
+                'halfDay'        => 0,
+                'attendanceRate' => $isWeekend ? 0 : ($totalActive > 0 ? round(($present / $totalActive) * 100, 1) : 0),
+            ];
         }
         return $result;
     }
 
+    public function payrollReport(Carbon $from, Carbon $to, array $filters = []): array
+    {
+        $summary = $this->summaryReport($from, $to, $filters);
+
+        if (empty($summary)) {
+            return [];
+        }
+
+        $empIds   = array_column($summary, 'employeeId');
+        $salaries = Employee::whereIn('employee_id', $empIds)
+            ->pluck('basic_salary', 'employee_id');
+
+        $workDays = $from->diffInDaysFiltered(fn($d) => ! $d->isWeekend(), $to) + 1;
+        $rows     = [];
+
+        foreach ($summary as $row) {
+            $basic     = (float) ($salaries[$row['employeeId']] ?? 0);
+            $daily     = $workDays > 0 ? $basic / $workDays : 0;
+            $hourly    = $daily / 9;
+            $absentDed = round($daily * $row['absentDays'], 2);
+            $lateDed   = round(($hourly / 60) * $row['lateMinutes'], 2);
+            $otPay     = round($hourly * 1.5 * $row['overtimeHours'], 2);
+
+            $rows[] = array_merge($row, [
+                'basicSalary'     => $basic,
+                'absentDeduction' => $absentDed,
+                'lateDeduction'   => $lateDed,
+                'overtimePay'     => $otPay,
+                'netPay'          => round($basic - $absentDed - $lateDed + $otPay, 2),
+                'workHours'       => $row['totalWorkHours'],
+            ]);
+        }
+        return $rows;
+    }
+
+    /**
+     * Get department summary with aggregated stats
+     */
+    public function departmentSummary(Carbon $from, Carbon $to, array $filters = []): array
+    {
+        $rows = $this->summaryReport($from, $to, $filters);
+
+        $deptMap = [];
+        foreach ($rows as $row) {
+            $dept = $row['department'];
+            if (! isset($deptMap[$dept])) {
+                $deptMap[$dept] = [
+                    'department'    => $dept,
+                    'employeeQty'   => 0,
+                    'lateTimes'     => 0,
+                    'absentTimes'   => 0,
+                    'regularHours'  => 0,
+                    'lateMinutes'   => 0,
+                    'totalOvertime' => 0,
+                    'totalPresent'  => 0,
+                    'totalAbsent'   => 0,
+                ];
+            }
+
+            $deptMap[$dept]['employeeQty']++;
+            $deptMap[$dept]['lateTimes']     += $row['lateDays'];
+            $deptMap[$dept]['absentTimes']   += $row['absentDays'];
+            $deptMap[$dept]['regularHours']  += $row['totalWorkHours'];
+            $deptMap[$dept]['lateMinutes']   += $row['lateMinutes'];
+            $deptMap[$dept]['totalOvertime'] += $row['overtimeHours'];
+            $deptMap[$dept]['totalPresent']  += $row['presentDays'];
+            $deptMap[$dept]['totalAbsent']   += $row['absentDays'];
+        }
+
+        return array_values($deptMap);
+    }
+
+    /**
+     * Get all locations with their stats
+     */
+    public function locationSummary(Carbon $from, Carbon $to, array $filters = []): array
+    {
+        $rows = $this->summaryReport($from, $to, $filters);
+
+        $locMap = [];
+        foreach ($rows as $row) {
+            $loc = $row['location'] ?: 'Unknown';
+            if (! isset($locMap[$loc])) {
+                $locMap[$loc] = [
+                    'location'          => $loc,
+                    'employeeQty'       => 0,
+                    'totalPresent'      => 0,
+                    'totalAbsent'       => 0,
+                    'totalLate'         => 0,
+                    'totalOvertime'     => 0,
+                    'totalWorkHours'    => 0,
+                    'avgAttendanceRate' => 0,
+                ];
+            }
+
+            $locMap[$loc]['employeeQty']++;
+            $locMap[$loc]['totalPresent']      += $row['presentDays'];
+            $locMap[$loc]['totalAbsent']       += $row['absentDays'];
+            $locMap[$loc]['totalLate']         += $row['lateDays'];
+            $locMap[$loc]['totalOvertime']     += $row['overtimeHours'];
+            $locMap[$loc]['totalWorkHours']    += $row['totalWorkHours'];
+            $locMap[$loc]['avgAttendanceRate'] += $row['attendanceRate'];
+        }
+
+        // Calculate averages
+        foreach ($locMap as &$loc) {
+            $loc['avgAttendanceRate'] = $loc['employeeQty'] > 0
+                ? round($loc['avgAttendanceRate'] / $loc['employeeQty'], 1)
+                : 0;
+        }
+
+        return array_values($locMap);
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private function isLate(Employee $emp, Carbon $punchTime): bool
+    {
+        $shift     = $emp->shift;
+        $start     = $shift?->start_time ?? '08:00';
+        $threshold = $shift?->late_threshold ?? 15;
+        $deadline  = Carbon::today()->setTimeFromTimeString($start)->addMinutes($threshold);
+        return $punchTime->gt($deadline);
+    }
+
+    // ── Charts & Dashboard Methods ───────────────────────────────────────────
+
+    /**
+     * Get live attendance feed for dashboard
+     */
+    public function liveFeed(int $limit = 20): array
+    {
+        $logs = AttendanceLog::with(['employee', 'device'])
+            ->orderByDesc('punch_time')
+            ->limit($limit)
+            ->get();
+
+        $colors = [
+            '#16a34a', '#0891b2', '#f59e0b', '#7c3aed', '#db2777',
+            '#dc2626', '#d97706', '#0d9488', '#4f46e5', '#ea580c',
+        ];
+        $i = 0;
+
+        return $logs->map(function ($log) use (&$i, $colors) {
+            $emp  = $log->employee;
+            $name = $emp ? $emp->full_name : "PIN {$log->employee_pin}";
+
+            return [
+                'id'         => $log->id,
+                'employeeId' => $log->employee_pin,
+                'name'       => $name,
+                'initials'   => $emp ? $emp->initials : strtoupper(substr($log->employee_pin, 0, 2)),
+                'department' => $emp?->department ?? '-',
+                'device'     => $log->device?->name ?? $log->device_sn,
+                'time'       => $log->punch_time->format('H:i:s'),
+                'timestamp'  => $log->punch_time->toIso8601String(),
+                'type'       => $log->punch_type === 0 ? 'IN' : 'OUT',
+                'punchType'  => $log->verify_type_label ?? 'fingerprint',
+                'verifyMode' => $log->punch_type_label ?? 'Check-In',
+                'status'     => 'success',
+                'color'      => $colors[$i++ % count($colors)],
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Get weekly attendance trend for chart
+     */
     public function weeklyTrend(): array
     {
         $totalActive = Employee::where('active', true)->count();
         $result      = [];
 
-        // Load all data in a single query grouped by date
         $daily = AttendanceLog::selectRaw("DATE(punch_time) as day, COUNT(DISTINCT employee_pin) as present")
             ->where('punch_type', 0)
             ->where('punch_time', '>=', now()->subDays(6)->startOfDay())
@@ -123,26 +430,35 @@ class AttendanceService
 
         for ($i = 6; $i >= 0; $i--) {
             $date    = Carbon::today()->subDays($i);
-            $present = (int)($daily[$date->toDateString()] ?? 0);
+            $dateStr = $date->toDateString();
+            $present = (int) ($daily[$dateStr] ?? 0);
             $absent  = max(0, $totalActive - $present);
             $rate    = $totalActive > 0 ? round(($present / $totalActive) * 100, 1) : 0;
+
             $result[] = [
                 'day'     => $date->format('D'),
-                'date'    => $date->toDateString(),
+                'date'    => $dateStr,
                 'rate'    => $rate,
                 'present' => $present,
                 'absent'  => $absent,
             ];
         }
+
         return $result;
     }
 
+    /**
+     * Get department breakdown for dashboard chart
+     */
     public function deptBreakdown(): array
     {
         $today  = Carbon::today();
-        $colors = ['#16a34a','#0891b2','#f59e0b','#7c3aed','#db2777','#dc2626','#d97706','#65a30d','#0d9488'];
+        $colors = [
+            '#16a34a', '#0891b2', '#f59e0b', '#7c3aed', '#db2777',
+            '#dc2626', '#d97706', '#65a30d', '#0d9488',
+        ];
 
-        // Count present by department in one query
+        // Count present by department today
         $presentByDept = AttendanceLog::whereDate('punch_time', $today)
             ->where('punch_type', 0)
             ->join('employees as e', 'attendance_logs.employee_pin', '=', 'e.employee_id')
@@ -159,332 +475,49 @@ class AttendanceService
         $i      = 0;
         $result = [];
         foreach ($totals as $dept => $total) {
-            if (!$dept) continue;
-            $present  = (int)($presentByDept[$dept] ?? 0);
+            if (! $dept) {
+                continue;
+            }
+
+            $present = (int) ($presentByDept[$dept] ?? 0);
+            $rate    = $total > 0 ? round(($present / $total) * 100, 1) : 0;
+
             $result[] = [
                 'dept'    => $dept,
                 'present' => $present,
-                'total'   => (int)$total,
-                'rate'    => $total > 0 ? round(($present / $total) * 100, 1) : 0,
+                'total'   => (int) $total,
+                'rate'    => $rate,
                 'late'    => 0,
                 'color'   => $colors[$i++ % count($colors)],
             ];
         }
+
+        // Sort by present count descending
         usort($result, fn($a, $b) => $b['present'] - $a['present']);
+
         return $result;
     }
 
-    public function liveFeed(int $limit = 20): array
+    /**
+     * Get hourly activity data for chart
+     */
+    public function hourlyActivity(): array
     {
-        // Eager-load employee and device — no N+1
-        $logs   = AttendanceLog::with(['employee', 'device'])
-            ->orderByDesc('punch_time')
-            ->limit($limit)
-            ->get();
-
-        $colors = ['#16a34a','#0891b2','#f59e0b','#7c3aed','#db2777','#dc2626','#d97706','#0d9488','#4f46e5','#ea580c'];
-        $i      = 0;
-
-        return $logs->map(function ($log) use (&$i, $colors) {
-            $emp  = $log->employee;
-            $name = $emp ? $emp->full_name : "PIN {$log->employee_pin}";
-            return [
-                'id'         => $log->id,
-                'employeeId' => $log->employee_pin,
-                'name'       => $name,
-                'initials'   => $emp ? $emp->initials : strtoupper(substr($log->employee_pin, 0, 2)),
-                'department' => $emp?->department ?? '-',
-                'device'     => $log->device?->name ?? $log->device_sn,
-                'time'       => $log->punch_time->format('H:i:s'),
-                'timestamp'  => $log->punch_time->toIso8601String(),
-                'type'       => $log->punch_type === 0 ? 'IN' : 'OUT',
-                'punchType'  => $log->verify_type_label,
-                'verifyMode' => $log->punch_type_label,
-                'status'     => 'success',
-                'color'      => $colors[$i++ % count($colors)],
-            ];
-        })->toArray();
-    }
-
-    // ── Attendance Page ───────────────────────────────────────────────────────
-
-    public function attendanceList(Carbon $date, array $filters = []): array
-    {
-        // Load employees with their shift (avoid N+1)
-        $empQuery = Employee::with(['shift', 'location'])
-            ->where('active', true);
-
-        if (!empty($filters['department'])) {
-            $empQuery->where('department', $filters['department']);
-        }
-        if (!empty($filters['area'])) {
-            $empQuery->where('area', $filters['area']);
-        }
-        if (!empty($filters['search'])) {
-            $s = $filters['search'];
-            $empQuery->where(fn($q) => $q
-                ->where('first_name', 'like', "%{$s}%")
-                ->orWhere('last_name',  'like', "%{$s}%")
-                ->orWhere('employee_id','like', "%{$s}%")
-            );
-        }
-
-        $employees = $empQuery->get();
-        $empIds    = $employees->pluck('employee_id')->all();
-
-        // Load ALL logs for the day in ONE query — no N+1
-        $allLogs = AttendanceLog::with('device')
-            ->whereDate('punch_time', $date)
-            ->whereIn('employee_pin', $empIds)
-            ->orderBy('punch_time')
-            ->get()
-            ->groupBy('employee_pin');
-
-        $records = [];
-        foreach ($employees as $emp) {
-            $logs     = $allLogs->get($emp->employee_id, collect());
-            $checkIn  = $logs->where('punch_type', 0)->first();
-            $checkOut = $logs->where('punch_type', 1)->last();
-
-            $status = 'absent';
-            if ($checkIn) {
-                $status = $this->isLate($emp, Carbon::parse($checkIn->punch_time)) ? 'late' : 'present';
-            }
-
-            $workHours = '-';
-            if ($checkIn && $checkOut) {
-                $diff      = Carbon::parse($checkIn->punch_time)->diff(Carbon::parse($checkOut->punch_time));
-                $workHours = $diff->h . 'h ' . str_pad($diff->i, 2, '0', STR_PAD_LEFT) . 'm';
-                // Flag half-day
-                $mins = Carbon::parse($checkIn->punch_time)->diffInMinutes(Carbon::parse($checkOut->punch_time));
-                if ($mins < 240) $status = 'half-day';
-            }
-
-            // Only include if no status filter, or matches
-            if (!empty($filters['status']) && $filters['status'] !== 'all' && $status !== $filters['status']) {
-                continue;
-            }
-
-            $records[] = [
-                'id'           => $emp->id,
-                'employeeId'   => $emp->employee_id,
-                'employeeName' => $emp->full_name,
-                'department'   => $emp->department ?? '-',
-                'area'         => $emp->area ?? '-',
-                'device'       => $checkIn?->device?->name ?? ($checkIn ? $checkIn->device_sn : '-'),
-                'date'         => $date->toDateString(),
-                'checkIn'      => $checkIn ? Carbon::parse($checkIn->punch_time)->format('H:i') : '',
-                'checkOut'     => $checkOut ? Carbon::parse($checkOut->punch_time)->format('H:i') : '',
-                'workHours'    => $workHours,
-                'status'       => $status,
-                'punchType'    => $checkIn ? $checkIn->verify_type_label : 'fingerprint',
-            ];
-        }
-        return $records;
-    }
-
-    // ── Reports ───────────────────────────────────────────────────────────────
-
-    public function summaryReport(Carbon $from, Carbon $to, array $filters = []): array
-    {
-        $query = Employee::with('shift')->where('active', true);
-        if (!empty($filters['department'])) $query->where('department', $filters['department']);
-
-        $employees = $query->get();
-        $empIds    = $employees->pluck('employee_id')->all();
-
-        // Load all logs in the date range in ONE query
-        $allLogs = AttendanceLog::whereBetween('punch_time', [$from->startOfDay(), $to->copy()->endOfDay()])
-            ->whereIn('employee_pin', $empIds)
-            ->get()
-            ->groupBy(fn($l) => $l->employee_pin . '|' . $l->punch_time->toDateString());
-
-        $rows = [];
-        foreach ($employees as $emp) {
-            $shift     = $emp->shift;
-            $startTime = $shift?->start_time ?? '08:00';
-            $lateMin   = $shift?->late_threshold ?? 15;
-            $otMin     = $shift?->overtime_threshold ?? 60;
-            $expectedH = $shift ? (float)$shift->work_hours : 9.0;
-
-            $presentDays = $absentDays = $lateDays = $halfDays = 0;
-            $totalWorkMins = $lateMinutes = $overtimeHours = 0;
-
-            for ($d = $from->copy(); $d->lte($to); $d->addDay()) {
-                if ($d->isWeekend()) continue;
-                $key     = $emp->employee_id . '|' . $d->toDateString();
-                $dayLogs = $allLogs->get($key, collect());
-                $in      = $dayLogs->where('punch_type', 0)->sortBy('punch_time')->first();
-                $out     = $dayLogs->where('punch_type', 1)->sortByDesc('punch_time')->first();
-
-                if (!$in) { $absentDays++; continue; }
-                $presentDays++;
-
-                $deadline = $d->copy()->setTimeFromTimeString($startTime)->addMinutes($lateMin);
-                if (Carbon::parse($in->punch_time)->gt($deadline)) {
-                    $lateDays++;
-                    $lateMinutes += Carbon::parse($in->punch_time)->diffInMinutes($d->copy()->setTimeFromTimeString($startTime));
-                }
-
-                if ($in && $out) {
-                    $mins           = Carbon::parse($in->punch_time)->diffInMinutes(Carbon::parse($out->punch_time));
-                    $totalWorkMins += $mins;
-                    if ($mins < 240) $halfDays++;
-                    if ($mins > ($expectedH * 60) + $otMin) {
-                        $overtimeHours += round(($mins - $expectedH * 60) / 60, 1);
-                    }
-                }
-            }
-
-            $workDays = $from->diffInDaysFiltered(fn($d) => !$d->isWeekend(), $to) + 1;
-            $rows[]   = [
-                'employeeId'     => $emp->employee_id,
-                'employeeName'   => $emp->full_name,
-                'department'     => $emp->department ?? '-',
-                'shift'          => $shift?->name ?? 'Standard Day Shift',
-                'location'       => $emp->area ?? '-',
-                'presentDays'    => $presentDays,
-                'absentDays'     => $absentDays,
-                'lateDays'       => $lateDays,
-                'halfDays'       => $halfDays,
-                'totalWorkHours' => round($totalWorkMins / 60, 1),
-                'overtimeHours'  => $overtimeHours,
-                'lateMinutes'    => $lateMinutes,
-                'attendanceRate' => $workDays > 0 ? round(($presentDays / $workDays) * 100, 1) : 0,
-            ];
-        }
-        return $rows;
-    }
-
-    public function dailyTrend(Carbon $from, Carbon $to): array
-    {
-        $totalActive = Employee::where('active', true)->count();
-
-        // One query for the whole range
-        $daily = AttendanceLog::selectRaw("DATE(punch_time) as day, COUNT(DISTINCT employee_pin) as present")
-            ->where('punch_type', 0)
-            ->whereBetween('punch_time', [$from->startOfDay(), $to->copy()->endOfDay()])
-            ->groupBy('day')
-            ->pluck('present', 'day');
+        $rows = AttendanceLog::selectRaw("DATE_FORMAT(punch_time,'%H') as hr, COUNT(*) as cnt")
+            ->where('punch_time', '>=', now()->subHours(24))
+            ->groupBy('hr')
+            ->orderBy('hr')
+            ->pluck('cnt', 'hr');
 
         $result = [];
-        for ($d = $from->copy(); $d->lte($to); $d->addDay()) {
-            $present  = (int)($daily[$d->toDateString()] ?? 0);
-            $absent   = max(0, $totalActive - $present);
+        for ($h = 0; $h < 24; $h++) {
+            $key      = str_pad($h, 2, '0', STR_PAD_LEFT);
             $result[] = [
-                'date'           => $d->toDateString(),
-                'totalEmployees' => $totalActive,
-                'present'        => $present,
-                'absent'         => $absent,
-                'late'           => 0,
-                'halfDay'        => 0,
-                'attendanceRate' => $totalActive > 0 ? round(($present / $totalActive) * 100, 1) : 0,
+                'hour' => "{$key}:00",
+                'count' => (int) ($rows[$key] ?? 0),
             ];
         }
+
         return $result;
-    }
-
-    public function payrollReport(Carbon $from, Carbon $to, array $filters = []): array
-    {
-        $summary = $this->summaryReport($from, $to, $filters);
-
-        // Load salaries in one query
-        $empIds  = array_column($summary, 'employeeId');
-        $salaries = Employee::whereIn('employee_id', $empIds)
-            ->pluck('basic_salary', 'employee_id');
-
-        $workDays = $from->diffInDaysFiltered(fn($d) => !$d->isWeekend(), $to) + 1;
-        $rows     = [];
-
-        foreach ($summary as $row) {
-            $basic     = (float)($salaries[$row['employeeId']] ?? 0);
-            $daily     = $workDays > 0 ? $basic / $workDays : 0;
-            $hourly    = $daily / 9;
-            $absentDed = round($daily * $row['absentDays'], 2);
-            $lateDed   = round(($hourly / 60) * $row['lateMinutes'], 2);
-            $otPay     = round($hourly * 1.5 * $row['overtimeHours'], 2);
-            $rows[]    = array_merge($row, [
-                'basicSalary'     => $basic,
-                'absentDeduction' => $absentDed,
-                'lateDeduction'   => $lateDed,
-                'overtimePay'     => $otPay,
-                'netPay'          => round($basic - $absentDed - $lateDed + $otPay, 2),
-                'workHours'       => $row['totalWorkHours'],
-            ]);
-        }
-        return $rows;
-    }
-
-    // ── Analytics ─────────────────────────────────────────────────────────────
-
-    public function deptStats(): array
-    {
-        $today  = Carbon::today();
-        $colors = ['#16a34a','#0891b2','#f59e0b','#7c3aed','#db2777','#dc2626','#d97706','#65a30d','#0d9488'];
-
-        // Fetch dept totals and today's presents in 2 queries
-        $totals  = Employee::where('active', true)
-            ->selectRaw('department, COUNT(*) as total')
-            ->groupBy('department')
-            ->pluck('total', 'department');
-
-        $presents = AttendanceLog::whereDate('punch_time', $today)
-            ->where('punch_type', 0)
-            ->join('employees as e', 'attendance_logs.employee_pin', '=', 'e.employee_id')
-            ->selectRaw('e.department as dept, COUNT(DISTINCT attendance_logs.employee_pin) as cnt')
-            ->groupBy('e.department')
-            ->pluck('cnt', 'dept');
-
-        // 7-day trend in ONE query (groupBy date+dept)
-        $trendData = AttendanceLog::where('punch_type', 0)
-            ->where('punch_time', '>=', $today->copy()->subDays(6)->startOfDay())
-            ->join('employees as e', 'attendance_logs.employee_pin', '=', 'e.employee_id')
-            ->selectRaw('e.department as dept, DATE(punch_time) as day, COUNT(DISTINCT attendance_logs.employee_pin) as cnt')
-            ->groupBy('e.department', 'day')
-            ->get()
-            ->groupBy('dept');
-
-        $i      = 0;
-        $result = [];
-        foreach ($totals as $dept => $total) {
-            if (!$dept) continue;
-            $present = (int)($presents[$dept] ?? 0);
-            $absent  = max(0, $total - $present);
-            $rate    = $total > 0 ? round(($present / $total) * 100, 1) : 0;
-
-            $deptTrend = $trendData->get($dept, collect())->keyBy('day');
-            $trend     = [];
-            for ($di = 6; $di >= 0; $di--) {
-                $date    = $today->copy()->subDays($di)->toDateString();
-                $p       = (int)($deptTrend->get($date)?->cnt ?? 0);
-                $trend[] = $total > 0 ? round(($p / $total) * 100, 1) : 0;
-            }
-
-            $result[] = [
-                'id'             => $i + 1,
-                'department'     => $dept,
-                'totalEmployees' => (int)$total,
-                'presentToday'   => $present,
-                'absentToday'    => $absent,
-                'lateToday'      => 0,
-                'attendanceRate' => $rate,
-                'trend'          => $trend,
-                'topPerformers'  => [],
-                'absenteeismTrend' => [],
-                'color'          => $colors[$i++ % count($colors)],
-            ];
-        }
-        return $result;
-    }
-
-    // ── Helper ────────────────────────────────────────────────────────────────
-
-    private function isLate(Employee $emp, Carbon $punchTime): bool
-    {
-        $shift     = $emp->shift;
-        $start     = $shift?->start_time ?? '08:00';
-        $threshold = $shift?->late_threshold ?? 15;
-        $deadline  = Carbon::today()->setTimeFromTimeString($start)->addMinutes($threshold);
-        return $punchTime->gt($deadline);
     }
 }

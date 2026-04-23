@@ -153,4 +153,33 @@ class NotificationService
             ->where(fn($q) => $q->whereNull('user_id')->orWhere('user_id', $userId))
             ->count();
     }
+
+
+
+    /**
+     * Notify a user with a notification entry.
+     *
+     * @param int $userId
+     * @param string $title
+     * @param string $message
+     * @param string $severity
+     * @param array $meta
+     */
+    public function notifyUser(
+        int $userId,
+        string $title,
+        string $message,
+        string $severity = 'info',
+        array $meta = []
+    ): void {
+        SystemNotification::create([
+            'user_id'     => $userId,
+            'title'       => $title,
+            'message'     => $message,
+            'category'    => 'general',
+            'severity'    => $severity,
+            'meta'        => $meta,
+            'read'        => false,
+        ]);
+    }
 }
