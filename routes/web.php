@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ADMSController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\Api\DeviceApiController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
@@ -32,6 +33,23 @@ Route::prefix('iclock')->group(function () {
     Route::post('/devicecmd', [ADMSController::class, 'deviceCmd']);
     Route::post('/upload', [ADMSController::class, 'upload']);
     Route::get('/fdata', [ADMSController::class, 'fdata']);
+});
+
+Route::prefix('iclock/api')->group(function () {
+    // Device management (Biotime 8 compatible)
+    Route::get('/terminals/', [DeviceApiController::class, 'index']);
+    Route::get('/terminals/{id}/', [DeviceApiController::class, 'show']);
+    Route::post('/terminals/', [DeviceApiController::class, 'store']);
+    Route::put('/terminals/{id}/', [DeviceApiController::class, 'update']);
+    Route::delete('/terminals/{id}/', [DeviceApiController::class, 'destroy']);
+    
+    // Device actions
+    Route::post('/terminals/upload_all/', [DeviceApiController::class, 'uploadAll']);
+    Route::post('/terminals/upload_transaction/', [DeviceApiController::class, 'uploadTransaction']);
+    Route::post('/terminals/reboot/', [DeviceApiController::class, 'reboot']);
+    Route::post('/terminals/clear_command/', [DeviceApiController::class, 'clearCommand']);
+    Route::post('/terminals/clear_capture/', [DeviceApiController::class, 'clearCapture']);
+    Route::post('/terminals/clear_all/', [DeviceApiController::class, 'clearAll']);
 });
 
 Route::get('/storage/avatars/{filename}', [App\Http\Controllers\AvatarController::class, 'show'])

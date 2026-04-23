@@ -463,4 +463,6 @@ class DeviceCommandService
 
         return $newCommands;
     }
+
+    
 }
