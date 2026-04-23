@@ -280,22 +280,18 @@ class DeviceOperationService
      */
     public function updateDeviceCounts(Device $device): void
     {
+        $device->refresh(); 
         $userCount = Employee::where('source_device_sn', $device->serial_number)->count();
-
-        $fpCount = BiometricTemplate::where('device_sn', $device->serial_number)
-            ->where('type', 'fingerprint')
-            ->where('is_valid', true)
-            ->count();
-
+        $fpCount   = BiometricTemplate::where('device_sn', $device->serial_number)
+                        ->where('type', 'fingerprint')->where('is_valid', true)->count();
         $faceCount = BiometricTemplate::where('device_sn', $device->serial_number)
-            ->where('type', 'face')
-            ->where('is_valid', true)
-            ->count();
-
+                        ->where('type', 'face')->where('is_valid', true)->count();
+    
+        // If DB has no records yet, preserve what the device reported in its handshake
         $device->update([
-            'user_count' => $userCount,
-            'fp_count'   => $fpCount,
-            'face_count' => $faceCount,
+            'user_count' => max($userCount, $device->getRawOriginal('user_count') ?? 0),
+            'fp_count'   => max($fpCount,   $device->getRawOriginal('fp_count')   ?? 0),
+            'face_count' => max($faceCount, $device->getRawOriginal('face_count') ?? 0),
         ]);
 
         Log::info('📊 Device counts updated', [
@@ -474,6 +470,15 @@ class DeviceOperationService
         $template = null;
         if (preg_match('/TMP=([^\r\n]+)/i', $line, $matches)) {
             $template = $matches[1];
+        }
+
+        // Also accept lowercase/mixed case for SIZE and VALID, just as in parseFingerprintLine
+        if (preg_match('/size=(\d+)/i', $line, $matches)) {
+            $size = (int) $matches[1];
+        }
+
+        if (preg_match('/valid=(\d+)/i', $line, $matches)) {
+            $valid = $matches[1] === '1';
         }
 
         return compact('pin', 'size', 'valid', 'template');

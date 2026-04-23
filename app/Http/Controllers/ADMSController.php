@@ -59,7 +59,9 @@ class ADMSController extends Controller
             // Track previous status
             $wasOnline = $device->status === 'online';
 
-            // Update device with data from handshake
+            // Update device with data from handshake.
+            // Cnt/FPCnt/FaceCnt are query params sent by the device on GET ?options=all.
+            // Fall back to current DB values so a plain heartbeat never zeroes the counts.
             $device->update([
                 'last_seen'  => now(),
                 'ip_address' => $ip,
@@ -69,6 +71,9 @@ class ADMSController extends Controller
                 'face_count' => (int) ($request->query('FaceCnt') ?? $request->input('FaceCnt', $device->face_count)),
                 'status'     => 'online',
             ]);
+
+            // Refresh so the in-memory model reflects the just-saved values
+            $device->refresh();
 
             Log::info('📊 Device updated', [
                 'sn'         => $sn,
@@ -188,6 +193,15 @@ class ADMSController extends Controller
 
     /**
      * Process attendance logs with location validation
+     *
+     * ZKTeco ADMS ATTLOG format (TAB-separated):
+     *   PIN \t DATE TIME \t STATUS \t VERIFY \t WORKCODE \t RESERVED
+     * e.g.: 1\t2026-04-23 08:30:00\t0\t1\t0\t0
+     *   parts[0] = PIN
+     *   parts[1] = "YYYY-MM-DD HH:MM:SS"  (date + time as ONE field)
+     *   parts[2] = STATUS / punch-type  (0=check-in, 1=check-out, 4=OT-in, 5=OT-out)
+     *   parts[3] = VERIFY mode          (0=fingerprint, 1=fp, 2=card, 3=pwd, 4=face, ...)
+     *   parts[4] = WORKCODE
      */
     private function processAttendanceLogs(Device $device, string $body): int
     {
@@ -204,19 +218,24 @@ class ADMSController extends Controller
                 continue;
             }
 
-            // Parse ZK attendance log format
-            // Format: PIN,YYYY-MM-DD HH:MM:SS,Verify Mode,In/Out Mode,Work Code
-            $parts = explode(",", $line);
-            if (count($parts) < 5) {
+            // ZKTeco sends TAB-separated records; fall back to splitting on multiple spaces
+            $parts = preg_split('/\t/', $line);
+            if (count($parts) < 3) {
+                // Fallback: some firmware separates with spaces
+                $parts = preg_split('/\s+/', $line, 6);
+            }
+
+            if (count($parts) < 3) {
                 Log::warning('⚠️ Invalid ATTLOG line format', ['line' => $line]);
                 continue;
             }
 
-            $pin       = trim($parts[0]);
-            $dateTime  = trim($parts[1]);
-            $verify    = trim($parts[2]);       // 0=fingerprint, 1=password, 2=card, etc.
-            $punchType = (int) trim($parts[3]); // 0=check-in, 1=check-out, 2=break-out, 3=break-in
-            $workCode  = trim($parts[4] ?? '');
+            $pin      = trim($parts[0]);
+            $dateTime = trim($parts[1]);
+                                                 // parts[2] = STATUS (punch direction), parts[3] = VERIFY (biometric mode)
+            $punchType = (int) trim($parts[2]);  // 0=check-in, 1=check-out, 2=break-out, 3=break-in, 4=OT-in, 5=OT-out
+            $verify    = trim($parts[3] ?? '1'); // 0=fingerprint, 1=fp, 2=card, 3=pwd, 4=face
+            $workCode  = trim($parts[4] ?? '0');
 
             try {
                 $punchTime = \Carbon\Carbon::parse($dateTime);
@@ -320,6 +339,14 @@ class ADMSController extends Controller
 
     /**
      * Send handshake response
+     *
+     * TransFlag values (space-separated):
+     *   TransData   — enable data transfer
+     *   AttLog      — push attendance logs (ATTLOG)
+     *   OpLog       — push operation logs (OPERLOG) — contains USER/FP/FACE enrollment records
+     *   EnrollUser  — notify server when a user is enrolled on device
+     *   GetUserInfo — CRITICAL: tells device to push full USERINFO on connect
+     *   ChkWork     — work-code validation
      */
     private function sendHandshakeResponse(Device $device)
     {
@@ -331,7 +358,7 @@ class ADMSController extends Controller
             "Delay={$device->heartbeat_interval}",
             "TransTimes=00:00;14:05",
             "TransInterval=1",
-            "TransFlag=TransData AttLog OpLog EnrollUser ChkWork",
+            "TransFlag=TransData AttLog OpLog EnrollUser GetUserInfo ChkWork",
             "Realtime=1",
             "Encrypt=None",
             "ServerVer=2.4.1",
@@ -355,7 +382,7 @@ class ADMSController extends Controller
     {
         try {
             $sn = $request->query('SN');
-           // Log::info('📥 getrequest', ['sn' => $sn]);
+            // Log::info('📥 getrequest', ['sn' => $sn]);
 
             if (! $sn) {
                 return response('ERROR', 400)->header('Content-Type', 'text/plain');
