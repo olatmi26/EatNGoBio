@@ -17,7 +17,7 @@ class DeviceOperationService
 
     /**
      * Process attendance logs from device
-     * Now uses shift configuration from database
+     * TRUST the device's punch_type value (0=IN, 1=OUT, etc.)
      */
     public function processAttendanceLogs(Device $device, string $body): int
     {
@@ -41,10 +41,15 @@ class DeviceOperationService
                 continue;
             }
 
-            $pin      = trim($parts[0]);
-            $dateTime = trim($parts[1]);
-            $verify   = (int) trim($parts[3] ?? 1);
-            $workCode = $parts[4] ?? '0';
+            $pin       = trim($parts[0]);
+            $dateTime  = trim($parts[1]);
+            $punchType = (int) trim($parts[2]); // USE DEVICE'S VALUE - DON'T OVERRIDE!
+            $verify    = (int) trim($parts[3] ?? 1);
+            $workCode  = $parts[4] ?? '0';
+
+            // Map ZKTeco values to standard (if needed)
+            // Most devices use: 0=IN, 1=OUT, 2=BreakOut, 3=BreakIn, 4=OTIn, 5=OTOut
+            $punchType = $this->normalizePunchType($punchType);
 
             try {
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
@@ -58,11 +63,8 @@ class DeviceOperationService
                 continue;
             }
 
-            // Get employee with their shift configuration
+            // Get employee
             $employee = $this->findOrCreateEmployee($pin, $device);
-
-            // Determine punch type based on employee's shift
-            $punchType = $this->determinePunchTypeFromShift($employee, $punchTime);
 
             // Check duplicate
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
@@ -86,7 +88,7 @@ class DeviceOperationService
                 'employee_pin'  => $pin,
                 'employee_id'   => $employee->id,
                 'punch_time'    => $punchTime,
-                'punch_type'    => $punchType,
+                'punch_type'    => $punchType, // USE DEVICE'S VALUE
                 'verify_type'   => $verify,
                 'work_code'     => $workCode,
                 'raw_line_data' => $line,
@@ -101,15 +103,42 @@ class DeviceOperationService
             Log::info('✅ Attendance saved', [
                 'pin'         => $pin,
                 'punch_type'  => $punchType,
-                'punch_label' => $punchType == 0 ? 'Check-In' : 'Check-Out',
+                'punch_label' => $this->getPunchTypeLabel($punchType),
                 'time'        => $punchTime->toDateTimeString(),
-                'shift'       => $employee->shift?->name ?? 'Default',
             ]);
         }
 
         $device->update(['last_seen' => now()]);
         return $saved;
     }
+
+/**
+ * Normalize punch type from device (some devices use different values)
+ */
+    private function normalizePunchType(int $type): int
+    {
+        // Standard ZKTeco mapping
+        // 0 = Check-In, 1 = Check-Out, 2 = Break Out, 3 = Break In, 4 = OT In, 5 = OT Out
+        return $type;
+    }
+
+/**
+ * Get human-readable punch type label
+ */
+    private function getPunchTypeLabel(int $type): string
+    {
+        return match ($type) {
+            0       => 'Check-In',
+            1       => 'Check-Out',
+            2       => 'Break Out',
+            3       => 'Break In',
+            4       => 'Overtime In',
+            5       => 'Overtime Out',
+            default => "Unknown ($type)",
+        };
+    }
+
+   
 
     /**
      * Determine if a punch is Check-In or Check-Out based on employee's shift
