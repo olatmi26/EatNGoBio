@@ -14,9 +14,13 @@ use Illuminate\Support\Facades\Log;
 
 class DeviceOperationService
 {
-    /**
-     * Process attendance logs from device
-     */
+
+/**
+ * Process attendance logs from device
+ * ZKTeco format with 11 fields:
+ * 0: PIN, 1: DateTime, 2: Status, 3: Verify, 4-10: Other data
+ * Status 255 means "Unknown" - Actual IN/OUT is determined by context
+ */
     public function processAttendanceLogs(Device $device, string $body): int
     {
         $lines = array_filter(explode("\n", trim($body)));
@@ -32,34 +36,50 @@ class DeviceOperationService
                 continue;
             }
 
-            $parts = preg_split('/[\t ]+/', $line);
+            // Parse ZKTeco 11-field format
+            $parts = preg_split('/\s+/', $line);
+
             if (count($parts) < 3) {
+                Log::warning('⚠️ Invalid ATTLOG line format', ['line' => $line]);
                 continue;
             }
 
-            $pin      = $parts[0];
-            $dateTime = trim(($parts[1] ?? '') . ' ' . ($parts[2] ?? ''));
-            $status   = (int) ($parts[3] ?? 0);
-            $verify   = (int) ($parts[4] ?? 1);
-            $workCode = $parts[5] ?? '0';
+            $pin      = trim($parts[0]);
+            $dateTime = trim($parts[1]);
 
-            // Sanitize punch_type - ZKTeco standard is 0-5
-            $punchType = $status > 5 ? 0 : $status;
+            // The status field (parts[2]) is 255 in your data
+            // This is NOT the punch type - it's reserved
+            $reservedStatus = (int) trim($parts[2]);
+
+            // The verify field (parts[3]) is the verification method
+            $verify = (int) trim($parts[3]);
+
+            // For your device, we need to determine IN/OUT based on:
+            // 1. The time of day (morning punches = IN, evening = OUT)
+            // 2. Or by comparing with previous/future punches for the same employee
+            // 3. Or your device might send separate events with different field
+
+            // Check if there's a punch type in a different field
+            // Some devices put IN/OUT in field 6 or 7
+            $punchType = $this->determinePunchType($parts, $pin, $dateTime);
 
             try {
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
             } catch (\Exception $e) {
-                Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime]);
-                continue;
+                try {
+                    $punchTime = Carbon::parse($dateTime);
+                } catch (\Exception $e) {
+                    Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime]);
+                    continue;
+                }
             }
 
-            // Check duplicate via cache
+            // Check duplicate
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
             if (Cache::has($cacheKey)) {
                 continue;
             }
 
-            // Check duplicate via database
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
                 ->where('employee_pin', $pin)
                 ->where('punch_time', $punchTime)
@@ -70,19 +90,17 @@ class DeviceOperationService
                 continue;
             }
 
-            // Find or create employee
             $employee = $this->findOrCreateEmployee($pin, $device);
 
-            // Create attendance log
             $log = AttendanceLog::create([
                 'device_id'     => $device->id,
                 'device_sn'     => $device->serial_number,
                 'employee_pin'  => $pin,
                 'employee_id'   => $employee->id,
                 'punch_time'    => $punchTime,
-                'punch_type'    => $punchType,
+                'punch_type'    => $punchType, // Now properly determined
                 'verify_type'   => $verify,
-                'work_code'     => $workCode,
+                'work_code'     => $parts[4] ?? '0',
                 'raw_line_data' => $line,
                 'status'        => 'success',
             ]);
@@ -93,18 +111,66 @@ class DeviceOperationService
             event(new AttendanceRecorded($log));
 
             Log::info('✅ Attendance saved', [
-                'pin'  => $pin,
-                'type' => $punchType,
-                'time' => $punchTime->toDateTimeString(),
+                'pin'         => $pin,
+                'punch_type'  => $punchType,
+                'punch_label' => $punchType == 0 ? 'IN' : 'OUT',
+                'time'        => $punchTime->toDateTimeString(),
             ]);
         }
 
-        // CRITICAL FIX: Update device last_seen after processing logs
         $device->update(['last_seen' => now()]);
-
         return $saved;
     }
 
+/**
+ * Determine the punch type (IN=0, OUT=1) from the raw data
+ */
+    private function determinePunchType(array $parts, string $pin, string $dateTime): int
+    {
+        // Method 1: Check if there's a field with value 0-5 (standard ZKTeco)
+        for ($i = 2; $i < min(10, count($parts)); $i++) {
+            $value = (int) $parts[$i];
+            if (in_array($value, [0, 1, 2, 3, 4, 5])) {
+                // Found a standard punch type value
+                if ($value == 0 || $value == 3 || $value == 4) {
+                    return 0;
+                }
+                // IN types
+                if ($value == 1 || $value == 2 || $value == 5) {
+                    return 1;
+                }
+                // OUT types
+            }
+        }
+
+        // Method 2: Determine by time of day
+        $time = Carbon::parse($dateTime);
+        $hour = $time->hour;
+
+        // Get employee's shift if available
+        $employee   = Employee::where('employee_id', $pin)->first();
+        $shiftStart = 8;  // Default 8 AM
+        $shiftEnd   = 17; // Default 5 PM
+
+        if ($employee && $employee->shift) {
+            $shiftStart = (int) substr($employee->shift->start_time ?? '08:00', 0, 2);
+            $shiftEnd   = (int) substr($employee->shift->end_time ?? '17:00', 0, 2);
+        }
+
+        // Morning punches (before 12 PM) are likely IN
+        // Afternoon/evening punches (after 12 PM) are likely OUT
+        $noonThreshold = 12;
+        $inCutoffTime  = $shiftStart + 4; // 4 hours after shift start
+
+        if ($hour < $noonThreshold) {
+            return 0; // IN
+        } else {
+            return 1; // OUT
+        }
+
+        // Method 3: Default to IN for first punch of day, OUT for subsequent
+        // This would require checking previous punches - implement if needed
+    }
     /**
      * Process USERINFO data from device
      */
