@@ -393,8 +393,20 @@ class AttendanceService
         $i = 0;
 
         return $logs->map(function ($log) use (&$i, $colors) {
+            // Make sure $log is an AttendanceLog model instance
+            if (! ($log instanceof \App\Models\AttendanceLog)) {
+                $log = \App\Models\AttendanceLog::find($log->id);
+            }
+
             $emp  = $log->employee;
             $name = $emp ? $emp->full_name : "PIN {$log->employee_pin}";
+
+            // Calculate direction based on punch_type
+            $direction = match ((int) $log->punch_type) {
+                0, 3, 4 => 'IN',  // Check-In, Break In, Overtime In
+                1, 2, 5 => 'OUT', // Check-Out, Break Out, Overtime Out
+                default => 'UNKNOWN',
+            };
 
             return [
                 'id'         => $log->id,
@@ -405,10 +417,10 @@ class AttendanceService
                 'device'     => $log->device?->name ?? $log->device_sn,
                 'time'       => $log->punch_time->format('H:i:s'),
                 'timestamp'  => $log->punch_time->toIso8601String(),
-                'type'       => $log->punch_type === 0 ? 'IN' : 'OUT',
-                'punchType'  => $log->verify_type_label ?? 'fingerprint',
-                'verifyMode' => $log->punch_type_label ?? 'Check-In',
-                'status'     => 'success',
+                'type'       => $direction,
+                'punchType'  => $log->verify_type_label,
+                'verifyMode' => $log->punch_type_label,
+                'status'     => $log->status ?? 'success',
                 'color'      => $colors[$i++ % count($colors)],
             ];
         })->toArray();

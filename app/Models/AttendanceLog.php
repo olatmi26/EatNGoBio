@@ -17,44 +17,67 @@ class AttendanceLog extends Model
         'work_code',
         'raw_line_data',
         'status',
+        'failure_reason',
     ];
 
     protected $casts = [
         'punch_time'  => 'datetime',
         'punch_type'  => 'integer',
         'verify_type' => 'integer',
-        'status' => 'string', 
+        'status'      => 'string',
     ];
 
     /**
-     * punch_type mapping (ZKTeco standard):
-     * 0 = Check-In  | 1 = Check-Out | 2 = Break Out
-     * 3 = Break In  | 4 = OT In     | 5 = OT Out
+     * punch_type mapping based on your system's configuration:
+     * 0 = Check-In
+     * 1 = Check-Out
+     * 2 = Break Out
+     * 3 = Break In
+     * 4 = Overtime In
+     * 5 = Overtime Out
      */
     public function getPunchTypeLabelAttribute(): string
     {
-        return match ($this->punch_type) {
+        return match ((int) $this->punch_type) {
             0       => 'Check-In',
             1       => 'Check-Out',
-            2       => 'Break',
-            3       => 'Return',
-            4       => 'OT In',
-            5       => 'OT Out',
-            default => 'Unknown',
+            2       => 'Break Out',
+            3       => 'Break In',
+            4       => 'Overtime In',
+            5       => 'Overtime Out',
+            default => 'Unknown (' . $this->punch_type . ')',
+        };
+    }
+
+    /**
+     * Get punch type for display (IN/OUT format for live monitor)
+     */
+    public function getPunchDirectionAttribute(): string
+    {
+        return match ((int) $this->punch_type) {
+            0, 3, 4 => 'IN',  // Check-In, Break In, Overtime In
+            1, 2, 5 => 'OUT', // Check-Out, Break Out, Overtime Out
+            default => 'UNKNOWN',
         };
     }
 
     /**
      * verify_type mapping (ZKTeco standard):
-     * 1/2/3 = Fingerprint | 4 = Face | 15 = Password/Card
+     * 0 = Fingerprint
+     * 1 = Fingerprint
+     * 2 = Fingerprint
+     * 3 = Password
+     * 4 = Face
+     * 15 = Card
      */
     public function getVerifyTypeLabelAttribute(): string
     {
-        return match ($this->verify_type) {
-            1, 2, 3 => 'fingerprint',
+        return match ((int) $this->verify_type) {
+            0, 1, 2 => 'fingerprint',
+            3       => 'password',
             4       => 'face',
-            15      => 'password',
-            default => 'card',
+            15      => 'card',
+            default => 'fingerprint',
         };
     }
 

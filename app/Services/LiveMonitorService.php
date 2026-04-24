@@ -3,7 +3,6 @@ namespace App\Services;
 
 use App\Models\AttendanceLog;
 use App\Models\Device;
-use App\Models\Employee;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -189,6 +188,11 @@ class LiveMonitorService
         $i = 0;
 
         return $logs->map(function ($log) use (&$i) {
+            // Ensure we have the full model
+            if (! ($log instanceof AttendanceLog)) {
+                $log = AttendanceLog::with(['employee', 'device'])->find($log->id);
+            }
+
             $employee = $log->employee;
             $device   = $log->device;
 
@@ -196,6 +200,33 @@ class LiveMonitorService
             $initials = $employee
                 ? $employee->initials
                 : strtoupper(substr($log->employee_pin, 0, 2));
+
+            // Calculate direction based on punch_type
+            $direction = match ((int) $log->punch_type) {
+                0, 3, 4 => 'IN',
+                1, 2, 5 => 'OUT',
+                default => 'UNKNOWN',
+            };
+
+            // Get punch type label
+            $punchTypeLabel = match ((int) $log->punch_type) {
+                0       => 'Check-In',
+                1       => 'Check-Out',
+                2       => 'Break Out',
+                3       => 'Break In',
+                4       => 'Overtime In',
+                5       => 'Overtime Out',
+                default => 'Unknown',
+            };
+
+            // Get verify type label
+            $verifyTypeLabel = match ((int) $log->verify_type) {
+                0, 1, 2 => 'fingerprint',
+                3       => 'password',
+                4       => 'face',
+                15      => 'card',
+                default => 'fingerprint',
+            };
 
             return [
                 'id'              => $log->id,
@@ -208,10 +239,10 @@ class LiveMonitorService
                 'timestamp'       => $log->punch_time->toIso8601String(),
                 'time'            => $log->punch_time->format('H:i:s'),
                 'date'            => $log->punch_time->format('Y-m-d'),
-                'punch_type'      => $log->verify_type_label,
+                'punch_type'      => $verifyTypeLabel,
                 'punch_type_code' => $log->punch_type,
-                'verify_mode'     => $log->punch_type_label,
-                'type'            => $log->punch_type === 0 ? 'IN' : 'OUT',
+                'verify_mode'     => $punchTypeLabel,
+                'type'            => $direction,
                 'status'          => $log->status ?? 'success',
                 'color'           => $this->avatarColors[$i++ % count($this->avatarColors)],
                 'avatar_bg'       => $this->getAvatarColor($name),

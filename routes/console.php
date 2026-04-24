@@ -1,8 +1,11 @@
 <?php
 
+use App\Models\Device;
+use App\Services\DeviceCommandService;
+use App\Services\NotificationRuleEngine;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Console\Scheduling\Schedule;
 
 /**
  * Console command to display an inspiring quote.
@@ -12,9 +15,9 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 // Register placeholder commands for any additional manual scheduling ease/readability
-Artisan::command('schedule:device-pull-attendance-morning', fn () => null)
+Artisan::command('schedule:device-pull-attendance-morning', fn() => null)
     ->purpose('Schedule device attendance pull every 5 mins (morning)');
-Artisan::command('schedule:device-pull-attendance-evening', fn () => null)
+Artisan::command('schedule:device-pull-attendance-evening', fn() => null)
     ->purpose('Schedule device attendance pull every 5 mins (evening)');
 
 app()->booted(function () {
@@ -35,7 +38,6 @@ app()->booted(function () {
         ->between('6:00', '21:00')
         ->withoutOverlapping()
         ->appendOutputTo(storage_path('logs/device-pull-users.log'));
- 
 
     // Full sync at midnight and noon
     $schedule->command('device:pull --type=all')
@@ -49,7 +51,33 @@ app()->booted(function () {
         ->appendOutputTo(storage_path('logs/device-cleanup.log'));
 
     // Run notification rules hourly
-    $schedule->call(fn () =>
-        app(\App\Services\NotificationRuleEngine::class)->evaluateAll()
+    $schedule->call(fn() =>
+        app(NotificationRuleEngine::class)->evaluateAll()
     )->hourly();
+
+    $schedule->call(function () {
+        $devices = Device::where('approved', true)->get();
+        foreach ($devices as $device) {
+            if ($device instanceof Device && $device->is_online) {
+                app(DeviceCommandService::class)->sendCommand($device, 'SYNC_USER');
+            }
+        }
+    })->everyThirtyMinutes();
 });
+
+
+Schedule::call(function () {
+    $devices = Device::where('approved', true)->get();
+    foreach ($devices as $device) {
+        if ($device->is_online) {
+            try {
+                if ($device instanceof Device && $device->is_online) {
+                    app(DeviceCommandService::class)->sendCommand($device, 'GET_ATTLOG');
+                }
+                \Illuminate\Support\Facades\Log::info('Auto-pull attendance', ['device' => $device->serial_number]);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Auto-pull failed', ['device' => $device->serial_number, 'error' => $e->getMessage()]);
+            }
+        }
+    }
+})->everyFiveMinutes();
