@@ -327,7 +327,7 @@ class ADMSController extends Controller
     }
 
     /**
-     * Determine punch type by sequence (alternating IN/OUT)
+     * Determine punch type by alternating sequence for EACH EMPLOYEE individually
      */
     private function determinePunchTypeBySequence(string $pin, Carbon $punchTime, int $rawPunchType): int
     {
@@ -338,30 +338,33 @@ class ADMSController extends Controller
 
         $today = $punchTime->copy()->startOfDay();
 
-        // Get today's punches for this employee (excluding current)
+        // Get TODAY's punches for THIS SPECIFIC EMPLOYEE only, ordered by time
         $todayPunches = AttendanceLog::where('employee_pin', $pin)
             ->whereDate('punch_time', $today)
-            ->where('status', 'success')
             ->orderBy('punch_time', 'asc')
             ->get();
 
-        // First punch of the day = Check-In (0)
-        if ($todayPunches->isEmpty()) {
+        // Count how many punches today for this employee
+        $punchCount = $todayPunches->count();
+
+        // First punch of the day for this employee = Check-In (0)
+        if ($punchCount == 0) {
             Log::info('First punch of day - IN', ['pin' => $pin, 'time' => $punchTime]);
             return 0;
         }
 
-        // Get the last punch type
+        // Get the LAST punch for this employee today
         $lastPunch = $todayPunches->last();
 
         // Alternate: If last was IN (0), this is OUT (1). If last was OUT (1), this is IN (0)
         $newType = ($lastPunch->punch_type == 0) ? 1 : 0;
 
         Log::info('Alternating punch', [
-            'pin'       => $pin,
-            'last_type' => $lastPunch->punch_type == 0 ? 'IN' : 'OUT',
-            'new_type'  => $newType == 0 ? 'IN' : 'OUT',
-            'time'      => $punchTime,
+            'pin'          => $pin,
+            'punch_number' => $punchCount + 1,
+            'last_type'    => $lastPunch->punch_type == 0 ? 'IN' : 'OUT',
+            'new_type'     => $newType == 0 ? 'IN' : 'OUT',
+            'time'         => $punchTime->format('H:i:s'),
         ]);
 
         return $newType;
