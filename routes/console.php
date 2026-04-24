@@ -78,5 +78,5 @@ app()->booted(function () {
                 }
             }
         }
-    })->everyFiveMinutes();
+    })->everyTwoMinutes();
 });
