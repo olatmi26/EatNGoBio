@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Log;
 class DeviceOperationService
 {
 
-/**
- * Process attendance logs from device
- */
+    /**
+     * Process attendance logs from device
+     * Now uses shift configuration from database
+     */
     public function processAttendanceLogs(Device $device, string $body): int
     {
         $lines = array_filter(explode("\n", trim($body)));
@@ -46,15 +47,10 @@ class DeviceOperationService
             $workCode = $parts[4] ?? '0';
 
             try {
-                // Parse the datetime from device
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
-
-                // CRITICAL: Convert to Lagos timezone if needed
-                // Device might be sending UTC time
                 if ($device->timezone && $device->timezone !== 'UTC') {
                     $punchTime = $punchTime->timezone($device->timezone);
                 } else {
-                    // Default to Africa/Lagos
                     $punchTime = $punchTime->timezone('Africa/Lagos');
                 }
             } catch (\Exception $e) {
@@ -62,9 +58,11 @@ class DeviceOperationService
                 continue;
             }
 
-            // Determine punch type based on time of day
-            $hour      = $punchTime->hour;
-            $punchType = ($hour < 12) ? 0 : 1; // 0=IN, 1=OUT
+            // Get employee with their shift configuration
+            $employee = $this->findOrCreateEmployee($pin, $device);
+
+            // Determine punch type based on employee's shift
+            $punchType = $this->determinePunchTypeFromShift($employee, $punchTime);
 
             // Check duplicate
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
@@ -81,8 +79,6 @@ class DeviceOperationService
                 Cache::put($cacheKey, true, now()->addHours(24));
                 continue;
             }
-
-            $employee = $this->findOrCreateEmployee($pin, $device);
 
             $log = AttendanceLog::create([
                 'device_id'     => $device->id,
@@ -103,14 +99,75 @@ class DeviceOperationService
             event(new AttendanceRecorded($log));
 
             Log::info('✅ Attendance saved', [
-                'pin'        => $pin,
-                'punch_type' => $punchType,
-                'time'       => $punchTime->toDateTimeString(),
+                'pin'         => $pin,
+                'punch_type'  => $punchType,
+                'punch_label' => $punchType == 0 ? 'Check-In' : 'Check-Out',
+                'time'        => $punchTime->toDateTimeString(),
+                'shift'       => $employee->shift?->name ?? 'Default',
             ]);
         }
 
         $device->update(['last_seen' => now()]);
         return $saved;
+    }
+
+    /**
+     * Determine if a punch is Check-In or Check-Out based on employee's shift
+     */
+    private function determinePunchTypeFromShift(Employee $employee, Carbon $punchTime): int
+    {
+        // Get employee's shift (with eager loaded relationship)
+        $shift = $employee->shift;
+
+        // If no shift assigned, use location/area shift or default
+        if (! $shift) {
+            // Try to get shift from location
+            if ($employee->location && $employee->location->shift) {
+                $shift = $employee->location->shift;
+            }
+            // Try to get shift from area
+            elseif ($employee->area) {
+                $shift = \App\Models\Shift::where('name', $employee->area . ' Shift')->first();
+            }
+            // Use default shift if nothing found
+            else {
+                $shift = \App\Models\Shift::where('is_default', true)->first();
+            }
+        }
+
+        // Default values if still no shift
+        if (! $shift) {
+            // Hard-coded fallback
+            $checkInStart  = Carbon::parse('08:00');
+            $checkOutStart = Carbon::parse('17:00');
+        } else {
+            // Use shift configuration
+            $checkInStart  = Carbon::parse($shift->start_time);
+            $checkOutStart = Carbon::parse($shift->end_time);
+        }
+
+        $currentTime   = $punchTime->copy();
+        $currentHour   = (int) $currentTime->format('H');
+        $currentMinute = (int) $currentTime->format('i');
+        $timeValue     = $currentHour + ($currentMinute / 60);
+
+        $checkInHour   = (int) $checkInStart->format('H');
+        $checkInMinute = (int) $checkInStart->format('i');
+        $checkInValue  = $checkInHour + ($checkInMinute / 60);
+
+        $checkOutHour   = (int) $checkOutStart->format('H');
+        $checkOutMinute = (int) $checkOutStart->format('i');
+        $checkOutValue  = $checkOutHour + ($checkOutMinute / 60);
+
+        // Calculate mid-day threshold (between check-in and check-out)
+        $midDayValue = ($checkInValue + $checkOutValue) / 2;
+
+        // Determine if it's Check-In or Check-Out
+        if ($timeValue < $midDayValue) {
+            return 0; // Check-In
+        } else {
+            return 1; // Check-Out
+        }
     }
 
 /**

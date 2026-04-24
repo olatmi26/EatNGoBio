@@ -376,12 +376,9 @@ class AttendanceService
 
     // ── Charts & Dashboard Methods ───────────────────────────────────────────
 
-    /**
-     * Get live attendance feed for dashboard
-     */
     public function liveFeed(int $limit = 20): array
     {
-        $logs = AttendanceLog::with(['employee', 'device'])
+        $logs = AttendanceLog::with(['employee', 'employee.shift', 'device'])
             ->orderByDesc('punch_time')
             ->limit($limit)
             ->get();
@@ -393,35 +390,53 @@ class AttendanceService
         $i = 0;
 
         return $logs->map(function ($log) use (&$i, $colors) {
-            // Make sure $log is an AttendanceLog model instance
-            if (! ($log instanceof \App\Models\AttendanceLog)) {
-                $log = \App\Models\AttendanceLog::find($log->id);
-            }
-
             $emp  = $log->employee;
             $name = $emp ? $emp->full_name : "PIN {$log->employee_pin}";
 
-            // Calculate direction based on punch_type
-            $direction = match ((int) $log->punch_type) {
-                0, 3, 4 => 'IN',  // Check-In, Break In, Overtime In
-                1, 2, 5 => 'OUT', // Check-Out, Break Out, Overtime Out
-                default => 'UNKNOWN',
-            };
+            // Get punch type label based on value
+            $punchLabel = $log->punch_type == 0 ? 'Check-In' : 'Check-Out';
+            $direction  = $log->punch_type == 0 ? 'IN' : 'OUT';
+
+            // Check if this punch is late (only for check-ins)
+            $isLate      = false;
+            $lateMinutes = 0;
+
+            if ($log->punch_type == 0 && $emp && $emp->shift) {
+                $shiftStart      = Carbon::parse($emp->shift->start_time);
+                $lateThreshold   = $emp->shift->late_threshold ?? 60;
+                $punchTime       = $log->punch_time->copy();
+                $punchTimeValue  = $punchTime->hour + ($punchTime->minute / 60);
+                $shiftStartValue = $shiftStart->hour + ($shiftStart->minute / 60);
+
+                // Check if punch is after shift start + threshold
+                if ($punchTimeValue > ($shiftStartValue + ($lateThreshold / 60))) {
+                    $isLate      = true;
+                    $lateMinutes = floor(($punchTimeValue - $shiftStartValue) * 60);
+                }
+            }
+
+            // Determine status
+            $status = 'success';
+            if ($isLate) {
+                $status = 'late';
+            }
 
             return [
-                'id'         => $log->id,
-                'employeeId' => $log->employee_pin,
-                'name'       => $name,
-                'initials'   => $emp ? $emp->initials : strtoupper(substr($log->employee_pin, 0, 2)),
-                'department' => $emp?->department ?? '-',
-                'device'     => $log->device?->name ?? $log->device_sn,
-                'time'       => $log->punch_time->format('H:i:s'),
-                'timestamp'  => $log->punch_time->toIso8601String(),
-                'type'       => $direction,
-                'punchType'  => $log->verify_type_label,
-                'verifyMode' => $log->punch_type_label,
-                'status'     => $log->status ?? 'success',
-                'color'      => $colors[$i++ % count($colors)],
+                'id'          => $log->id,
+                'employeeId'  => $log->employee_pin,
+                'name'        => $name,
+                'initials'    => $emp ? $emp->initials : strtoupper(substr($log->employee_pin, 0, 2)),
+                'department'  => $emp?->department ?? '-',
+                'device'      => $log->device?->name ?? $log->device_sn,
+                'time'        => $log->punch_time->format('H:i:s'),
+                'timestamp'   => $log->punch_time->toIso8601String(),
+                'type'        => $direction,
+                'punchType'   => $log->verify_type_label,
+                'verifyMode'  => $punchLabel,
+                'status'      => $status,
+                'isLate'      => $isLate,
+                'lateMinutes' => $lateMinutes,
+                'color'       => $colors[$i++ % count($colors)],
             ];
         })->toArray();
     }
