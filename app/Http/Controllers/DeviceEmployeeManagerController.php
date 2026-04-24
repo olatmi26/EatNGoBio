@@ -83,6 +83,15 @@ class DeviceEmployeeManagerController extends Controller
             
             foreach ($employees as $employee) {
                 try {
+                    // Ensure $employee is an instance of App\Models\Employee
+                    if (!($employee instanceof Employee)) {
+                        $employeeModel = Employee::find($employee->id);
+                        if (!$employeeModel) {
+                            throw new \Exception("Employee model not found for ID {$employee->id}");
+                        }
+                        $employee = $employeeModel;
+                    }
+
                     $result = $this->syncService->syncEmployeeToDevice($employee, $device);
                     if ($result) $successCount++;
                 } catch (\Exception $e) {
@@ -93,6 +102,7 @@ class DeviceEmployeeManagerController extends Controller
                     ]);
                 }
             }
+  
             
             if ($request->wantsJson()) {
                 return response()->json([

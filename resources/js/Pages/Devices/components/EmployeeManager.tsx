@@ -54,7 +54,7 @@ export default function EmployeeManager({
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const res = await fetch("/devices/employee-manager?_ajax=1", {
+            const res = await fetch("/devices/employee-manager/data", {
                 headers: {
                     Accept: "application/json",
                     "X-Requested-With": "XMLHttpRequest",

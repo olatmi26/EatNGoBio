@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\BiometricTemplate;
 use App\Models\Device;
 use App\Models\Employee;
 use App\Models\Location;
@@ -28,19 +29,33 @@ class DeviceController extends Controller
         $search  = $request->input('search', '');
         $status  = $request->input('status', '');
 
-        $devices         = $this->deviceService->deviceListPaginated($search, $status, $perPage);
-        $stats           = $this->deviceService->getStats();
-        $deviceAnalytics = $this->deviceService->deviceStats();
+        $devices             = $this->deviceService->deviceListPaginated($search, $status, $perPage);
+        $stats               = $this->deviceService->getStats();
+        $analyticsData       = $this->deviceService->deviceStats();
+        $analyticsPage       = (int) $request->input('analytics_page', 1);
+        $analyticsPerPage    = (int) $request->input('analytics_per_page', 15);
+        $analyticsCollection = collect($analyticsData);
+        $analyticsSlice      = $analyticsCollection->forPage($analyticsPage, $analyticsPerPage)->values();
+
+        $deviceAnalytics = [
+            'data'         => $analyticsSlice,
+            'current_page' => $analyticsPage,
+            'last_page'    => (int) ceil($analyticsCollection->count() / $analyticsPerPage),
+            'per_page'     => $analyticsPerPage,
+            'total'        => $analyticsCollection->count(),
+            'from'         => (($analyticsPage - 1) * $analyticsPerPage) + 1,
+            'to'           => min($analyticsPage * $analyticsPerPage, $analyticsCollection->count()),
+        ];
 
         return Inertia::render('Devices/Index', [
-            'devices'         => $devices,
-            'pendingDevices'  => $this->deviceService->pendingDevices(),
-            'areas'           => Location::orderBy('name')->get(['id', 'name', 'code']),
-            'unreadCount'     => $this->notifs->unreadCount($request->user()->id),
-            'stats'           => $stats,
-            'deviceAnalytics' => $deviceAnalytics,
+            'devices'           => $devices,
+            'pendingDevices'    => $this->deviceService->pendingDevices(),
+            'areas'             => Location::orderBy('name')->get(['id', 'name', 'code']),
+            'unreadCount'       => $this->notifs->unreadCount($request->user()->id),
+            'stats'             => $stats,
+            'deviceAnalytics'   => $deviceAnalytics,
             'availableCommands' => $this->commandService->getAvailableCommands(),
-            'filters'         => [
+            'filters'           => [
                 'search'   => $search,
                 'status'   => $status,
                 'per_page' => $perPage,
@@ -51,7 +66,7 @@ class DeviceController extends Controller
     public function show(int $id): Response
     {
         $device = Device::with('location')->findOrFail($id);
-        $user=auth()->user();
+        $user   = auth()->user();
 
         return Inertia::render('Devices/Detail', [
             'device'             => $this->deviceService->formatDevice($device),
@@ -112,7 +127,7 @@ class DeviceController extends Controller
     /**
      * Send a command to a device
      */
-    public function sendCommand(Request $request, int $id): RedirectResponse|JsonResponse
+    public function sendCommand(Request $request, int $id): RedirectResponse | JsonResponse
     {
         $device = Device::findOrFail($id);
 
@@ -131,9 +146,9 @@ class DeviceController extends Controller
                     'success' => true,
                     'message' => $message,
                     'command' => [
-                        'id' => $command->id,
+                        'id'      => $command->id,
                         'command' => $command->command,
-                        'status' => $command->status,
+                        'status'  => $command->status,
                     ],
                 ]);
             }
@@ -150,9 +165,9 @@ class DeviceController extends Controller
     /**
      * Sync time with device
      */
-    public function syncTime(int $id): RedirectResponse|JsonResponse
+    public function syncTime(int $id): RedirectResponse | JsonResponse
     {
-        $device = Device::findOrFail($id);
+        $device  = Device::findOrFail($id);
         $command = $this->commandService->syncTime($device);
 
         $message = 'Time sync command queued.';
@@ -167,9 +182,9 @@ class DeviceController extends Controller
     /**
      * Sync all users to device
      */
-    public function syncAllUsers(int $id): RedirectResponse|JsonResponse
+    public function syncAllUsers(int $id): RedirectResponse | JsonResponse
     {
-        $device = Device::findOrFail($id);
+        $device   = Device::findOrFail($id);
         $commands = $this->commandService->syncAllUsers($device);
 
         $message = count($commands) . ' user sync commands queued.';
@@ -206,9 +221,9 @@ class DeviceController extends Controller
     /**
      * Retry failed commands
      */
-    public function retryFailed(int $id): RedirectResponse|JsonResponse
+    public function retryFailed(int $id): RedirectResponse | JsonResponse
     {
-        $device = Device::findOrFail($id);
+        $device   = Device::findOrFail($id);
         $commands = $this->commandService->retryFailedCommands($device);
 
         $message = count($commands) . ' failed commands queued for retry.';
@@ -256,7 +271,7 @@ class DeviceController extends Controller
     public function stats(): JsonResponse
     {
         return response()->json([
-            ...$this->deviceService->getStats(),
+             ...$this->deviceService->getStats(),
             'recentActivity' => $this->deviceService->getRecentActivity(5),
         ]);
     }
@@ -319,4 +334,50 @@ class DeviceController extends Controller
             'employees' => $employees,
         ]);
     }
+
+    public function employeeManagerData(Request $request): JsonResponse
+    {
+        $devices = Device::where('approved', true)
+            ->orderByDesc('status')
+            ->orderBy('name')
+            ->get()
+            ->map(function ($d) {
+                return [
+                    'id'            => $d->id,
+                    'name'          => $d->name ?? $d->serial_number,
+                    'sn'            => $d->serial_number,
+                    'area'          => $d->area ?? $d->location?->name ?? '-',
+                    'status'        => $d->computed_status,
+                    'is_online'     => $d->is_online,
+                    'employeeCount' => (int) ($d->user_count ?? 0),
+                    'fpCount'       => (int) ($d->fp_count ?? 0),
+                    'faceCount'     => (int) ($d->face_count ?? 0),
+                ];
+            })
+            ->values();
+
+        $employees = Employee::where('active', true)
+            ->orderBy('first_name')
+            ->get()
+            ->map(function ($e) {
+                return [
+                    'id'           => $e->id,
+                    'employeeId'   => $e->employee_id,
+                    'name'         => $e->full_name ?: $e->employee_id,
+                    'department'   => $e->department ?? '-',
+                    'area'         => $e->area ?? '-',
+                    'status'       => $e->employee_status ?? 'active',
+                    'hasBiometric' => BiometricTemplate::where('employee_id', $e->id)
+                        ->where('is_valid', true)
+                        ->exists(),
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'devices'   => $devices,
+            'employees' => $employees,
+        ]);
+    }
+
 }

@@ -76,7 +76,9 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('live-stats');
         Route::post('/area/pull', [DevicePullController::class, 'pullArea'])->name('pull-area');
         Route::post('/pull/execute', [DevicePullController::class, 'executeNow'])->name('pull-execute');
-        Route::get('/employee-manager', [DeviceEmployeeManagerController::class, 'index'])->name('employee-manager');
+        Route::get('/employee-manager', fn() => redirect('/devices#employee-manager'))
+            ->name('employee-manager');        
+        Route::get('/employee-manager/data', [DeviceController::class, 'employeeManagerData'])->name('employeeManagerData');
         Route::post('/sync-to-device', [DeviceEmployeeManagerController::class, 'syncToDevice'])->name('sync-to-device');
 
         Route::post('/{id}/sync-from-device', [DeviceEmployeeManagerController::class, 'syncFromDevice'])->name('sync-from-device');
@@ -92,8 +94,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/{id}', [DeviceController::class, 'show'])->name('show');
         Route::put('/{id}', [DeviceController::class, 'update'])->name('update');
         Route::delete('/{id}', [DeviceController::class, 'destroy'])->name('destroy');
-
-       
 
         Route::get('/', [DeviceController::class, 'index'])->name('index');
         Route::post('/', [DeviceController::class, 'store'])->name('store');

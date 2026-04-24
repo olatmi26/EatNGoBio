@@ -515,16 +515,26 @@ export default function DevicesPage() {
         return () => clearInterval(interval);
     }, []);
 
+   
     const fetchDevices = useCallback(
         (params: Record<string, any> = {}) => {
             setIsLoading(true);
             router.get(
                 route("devices.index"),
                 {
-                    ...params,
-                    search: search || undefined,
-                    status: statusFilter || undefined,
-                    per_page: perPage,
+                    search:
+                        params.search !== undefined
+                            ? params.search
+                            : search || undefined,
+                    status:
+                        params.status !== undefined
+                            ? params.status
+                            : statusFilter || undefined,
+                    per_page:
+                        params.per_page !== undefined
+                            ? params.per_page
+                            : perPage,
+                    page: params.page ?? 1,
                     tab: "devices",
                 },
                 {
