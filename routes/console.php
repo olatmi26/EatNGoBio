@@ -51,10 +51,9 @@ app()->booted(function () {
         ->appendOutputTo(storage_path('logs/device-cleanup.log'));
 
     // Run notification rules hourly
-    $schedule->call(fn() =>
-        app(NotificationRuleEngine::class)->evaluateAll()
-    )->hourly();
+    $schedule->call(fn() => app(NotificationRuleEngine::class)->evaluateAll())->hourly();
 
+    // Pull user data every hour
     $schedule->call(function () {
         $devices = Device::where('approved', true)->get();
         foreach ($devices as $device) {
@@ -62,7 +61,7 @@ app()->booted(function () {
                 app(DeviceCommandService::class)->sendCommand($device, 'SYNC_USER');
             }
         }
-    })->everyThirtyMinutes();
+    })->hourly();
 
     $schedule->call(function () {
         $devices = Device::where('approved', true)->get();
@@ -79,4 +78,7 @@ app()->booted(function () {
             }
         }
     })->everyTwoMinutes();
+
+    // Mark offline devices every minute
+    $schedule->command('devices:mark-offline')->everyMinute();
 });
