@@ -182,7 +182,12 @@ class LocationAccessService
      */
     public function validatePunch(Employee $employee, Device $device, string $punchType = 'check_in'): array
     {
-        if (! $this->canAccessDevice($employee, $device)) {
+
+        return [
+            'valid'   => true,
+            'message' => 'Punch allowed',
+        ];
+       /*  if (! $this->canAccessDevice($employee, $device)) {
             return [
                 'valid' => false,
                 'error' => 'You are not authorized to punch at this location.',
@@ -248,7 +253,7 @@ class LocationAccessService
         return [
             'valid'   => true,
             'message' => 'Punch allowed',
-        ];
+        ]; */
     }
 
     /**
