@@ -17,9 +17,6 @@ class DeviceOperationService
 
 /**
  * Process attendance logs from device
- * ZKTeco format with 11 fields:
- * 0: PIN, 1: DateTime, 2: Status, 3: Verify, 4-10: Other data
- * Status 255 means "Unknown" - Actual IN/OUT is determined by context
  */
     public function processAttendanceLogs(Device $device, string $body): int
     {
@@ -36,7 +33,6 @@ class DeviceOperationService
                 continue;
             }
 
-            // Parse ZKTeco 11-field format
             $parts = preg_split('/\s+/', $line);
 
             if (count($parts) < 3) {
@@ -46,33 +42,29 @@ class DeviceOperationService
 
             $pin      = trim($parts[0]);
             $dateTime = trim($parts[1]);
-
-            // The status field (parts[2]) is 255 in your data
-            // This is NOT the punch type - it's reserved
-            $reservedStatus = (int) trim($parts[2]);
-
-            // The verify field (parts[3]) is the verification method
-            $verify = (int) trim($parts[3]);
-
-            // For your device, we need to determine IN/OUT based on:
-            // 1. The time of day (morning punches = IN, evening = OUT)
-            // 2. Or by comparing with previous/future punches for the same employee
-            // 3. Or your device might send separate events with different field
-
-            // Check if there's a punch type in a different field
-            // Some devices put IN/OUT in field 6 or 7
-            $punchType = $this->determinePunchType($parts, $pin, $dateTime);
+            $verify   = (int) trim($parts[3] ?? 1);
+            $workCode = $parts[4] ?? '0';
 
             try {
+                // Parse the datetime from device
                 $punchTime = Carbon::createFromFormat('Y-m-d H:i:s', $dateTime);
-            } catch (\Exception $e) {
-                try {
-                    $punchTime = Carbon::parse($dateTime);
-                } catch (\Exception $e) {
-                    Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime]);
-                    continue;
+
+                // CRITICAL: Convert to Lagos timezone if needed
+                // Device might be sending UTC time
+                if ($device->timezone && $device->timezone !== 'UTC') {
+                    $punchTime = $punchTime->timezone($device->timezone);
+                } else {
+                    // Default to Africa/Lagos
+                    $punchTime = $punchTime->timezone('Africa/Lagos');
                 }
+            } catch (\Exception $e) {
+                Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime]);
+                continue;
             }
+
+            // Determine punch type based on time of day
+            $hour      = $punchTime->hour;
+            $punchType = ($hour < 12) ? 0 : 1; // 0=IN, 1=OUT
 
             // Check duplicate
             $cacheKey = "attlog_{$device->serial_number}_{$pin}_{$punchTime->timestamp}";
@@ -98,9 +90,9 @@ class DeviceOperationService
                 'employee_pin'  => $pin,
                 'employee_id'   => $employee->id,
                 'punch_time'    => $punchTime,
-                'punch_type'    => $punchType, // Now properly determined
+                'punch_type'    => $punchType,
                 'verify_type'   => $verify,
-                'work_code'     => $parts[4] ?? '0',
+                'work_code'     => $workCode,
                 'raw_line_data' => $line,
                 'status'        => 'success',
             ]);
@@ -111,10 +103,9 @@ class DeviceOperationService
             event(new AttendanceRecorded($log));
 
             Log::info('✅ Attendance saved', [
-                'pin'         => $pin,
-                'punch_type'  => $punchType,
-                'punch_label' => $punchType == 0 ? 'IN' : 'OUT',
-                'time'        => $punchTime->toDateTimeString(),
+                'pin'        => $pin,
+                'punch_type' => $punchType,
+                'time'       => $punchTime->toDateTimeString(),
             ]);
         }
 
