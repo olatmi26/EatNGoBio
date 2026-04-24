@@ -257,7 +257,9 @@ class ADMSController extends Controller
             return 0;
         }
 
-        $saved = 0;
+        // Collect all PINs first for eager loading
+        $pins        = [];
+        $punchesData = [];
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -270,23 +272,49 @@ class ADMSController extends Controller
                 continue;
             }
 
-            $pin          = trim($parts[0]);
+            $pin           = trim($parts[0]);
+            $pins[]        = $pin;
+            $punchesData[] = [
+                'pin'   => $pin,
+                'line'  => $line,
+                'parts' => $parts,
+            ];
+        }
+
+        // EAGER LOAD: Get all employees with their shifts in ONE query
+        $employees = Employee::whereIn('employee_id', array_unique($pins))
+            ->with(['shift']) // Eager load shift relationship
+            ->get()
+            ->keyBy('employee_id');
+
+        $saved = 0;
+
+        foreach ($punchesData as $punch) {
+            $pin   = $punch['pin'];
+            $line  = $punch['line'];
+            $parts = $punch['parts'];
+
             $dateTime     = trim($parts[1]);
             $rawPunchType = (int) trim($parts[2]);
+            $verify       = trim($parts[3] ?? '1');
+            $workCode     = trim($parts[4] ?? '0');
 
             try {
                 $punchTime = \Carbon\Carbon::parse($dateTime);
+                if ($device->timezone && $device->timezone !== 'UTC') {
+                    $punchTime = $punchTime->timezone($device->timezone);
+                } else {
+                    $punchTime = $punchTime->timezone('Africa/Lagos');
+                }
             } catch (\Exception $e) {
                 continue;
             }
 
-            // Use alternating sequence to determine IN/OUT
-            $punchType = $this->determinePunchTypeBySequence($pin, $punchTime, $rawPunchType);
+            // Get pre-loaded employee with shift
+            $employee = $employees->get($pin);
 
-            $verify   = trim($parts[3] ?? '1');
-            $workCode = trim($parts[4] ?? '0');
-
-            $employee = Employee::where('employee_id', $pin)->first();
+            // Pass the pre-loaded employee to the method
+            $punchType = $this->determinePunchTypeBySequence($pin, $punchTime, $rawPunchType, $employee);
 
             // Check duplicate
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
@@ -298,7 +326,6 @@ class ADMSController extends Controller
                 continue;
             }
 
-            // Save with SUCCESS status (bypass validation for now)
             $attendanceLog = AttendanceLog::create([
                 'device_id'     => $device->id,
                 'device_sn'     => $device->serial_number,
@@ -314,60 +341,69 @@ class ADMSController extends Controller
 
             event(new AttendanceRecorded($attendanceLog));
             $saved++;
-
-            Log::info('✅ Punch saved', [
-                'pin'    => $pin,
-                'time'   => $punchTime,
-                'type'   => $punchType == 0 ? 'IN' : 'OUT',
-                'status' => 'success',
-            ]);
         }
+
+        Log::info('📝 Attendance logs processed', [
+            'device_sn'   => $device->serial_number,
+            'total_lines' => count($lines),
+            'saved'       => $saved,
+        ]);
 
         return $saved;
     }
-
     /**
      * Determine punch type by alternating sequence for EACH EMPLOYEE individually
      */
-    private function determinePunchTypeBySequence(string $pin, Carbon $punchTime, int $rawPunchType): int
+    private function determinePunchTypeBySequence(string $pin, Carbon $punchTime, int $rawPunchType, ?Employee $employee = null): int
     {
         // If device sent a valid value (0-5), use it
         if ($rawPunchType >= 0 && $rawPunchType <= 5 && $rawPunchType != 255) {
             return $rawPunchType;
         }
 
-        $today = $punchTime->copy()->startOfDay();
+        $today       = $punchTime->copy()->startOfDay();
+        $punchHour   = (int) $punchTime->format('H');
+        $punchMinute = (int) $punchTime->format('i');
+        $punchValue  = $punchHour + ($punchMinute / 60);
 
-        // Get TODAY's punches for THIS SPECIFIC EMPLOYEE only, ordered by time
-        $todayPunches = AttendanceLog::where('employee_pin', $pin)
+        // Get today's punch count for this employee (still needed)
+        $punchCount = AttendanceLog::where('employee_pin', $pin)
             ->whereDate('punch_time', $today)
-            ->orderBy('punch_time', 'asc')
-            ->get();
+            ->count();
 
-        // Count how many punches today for this employee
-        $punchCount = $todayPunches->count();
+        // Use the pre-loaded employee with shift relationship
+        if ($employee && $employee->shift) {
+            $shift = $employee->shift;
 
-        // First punch of the day for this employee = Check-In (0)
-        if ($punchCount == 0) {
-            Log::info('First punch of day - IN', ['pin' => $pin, 'time' => $punchTime]);
-            return 0;
+            $shiftStart     = Carbon::parse($shift->start_time ?? '08:00:00');
+            $shiftEnd       = Carbon::parse($shift->end_time ?? '17:00:00');
+            $checkinStartAt = $shift->checkin_start_at ? Carbon::parse($shift->checkin_start_at) : $shiftStart->copy()->subMinutes(30);
+            $checkoutEndsAt = $shift->checkout_ends_at ? Carbon::parse($shift->checkout_ends_at) : $shiftEnd->copy()->addMinutes(120);
+
+            $startValue        = $shiftStart->hour + ($shiftStart->minute / 60);
+            $endValue          = $shiftEnd->hour + ($shiftEnd->minute / 60);
+            $checkinStartValue = $checkinStartAt->hour + ($checkinStartAt->minute / 60);
+            $checkoutEndValue  = $checkoutEndsAt->hour + ($checkoutEndsAt->minute / 60);
+
+            // First punch of the day
+            if ($punchCount == 0) {
+                return 0; // Check-In
+            }
+
+            // Get last punch type for this employee today
+            $lastPunch = AttendanceLog::where('employee_pin', $pin)
+                ->whereDate('punch_time', $today)
+                ->orderBy('punch_time', 'desc')
+                ->first();
+
+            // Alternate based on last punch
+            if ($lastPunch) {
+                return ($lastPunch->punch_type == 0) ? 1 : 0;
+            }
         }
 
-        // Get the LAST punch for this employee today
-        $lastPunch = $todayPunches->last();
-
-        // Alternate: If last was IN (0), this is OUT (1). If last was OUT (1), this is IN (0)
-        $newType = ($lastPunch->punch_type == 0) ? 1 : 0;
-
-        Log::info('Alternating punch', [
-            'pin'          => $pin,
-            'punch_number' => $punchCount + 1,
-            'last_type'    => $lastPunch->punch_type == 0 ? 'IN' : 'OUT',
-            'new_type'     => $newType == 0 ? 'IN' : 'OUT',
-            'time'         => $punchTime->format('H:i:s'),
-        ]);
-
-        return $newType;
+        // Fallback: Simple alternating sequence
+        return ($punchCount % 2 == 0) ? 0 : 1;
     }
 
     /**
