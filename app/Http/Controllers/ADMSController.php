@@ -282,6 +282,12 @@ class ADMSController extends Controller
             $punchType = (int) trim($parts[2]);  // 0=check-in, 1=check-out, 2=break-out, 3=break-in, 4=OT-in, 5=OT-out
             $verify    = trim($parts[3] ?? '1'); // 0=fingerprint, 1=fp, 2=card, 3=pwd, 4=face
             $workCode  = trim($parts[4] ?? '0');
+            if ($punchType == 255) {
+                $punchTime = \Carbon\Carbon::parse($dateTime);
+                $hour = $punchTime->hour;
+                // Before 12 PM = IN (0), After 12 PM = OUT (1)
+                $punchType = $hour < 12 ? 0 : 1;
+            } 
 
             try {
                 $punchTime = \Carbon\Carbon::parse($dateTime);
@@ -331,6 +337,14 @@ class ADMSController extends Controller
                         'employee_id' => $pin,
                         'device'      => $device->serial_number,
                     ]);
+                    $exists = AttendanceLog::where('device_sn', $device->serial_number)
+                    ->where('employee_pin', $pin)
+                    ->where('punch_time', $punchTime)
+                    ->exists();
+        
+                    if ($exists) {
+                        continue;
+                    }
 
                     AttendanceLog::create([
                         'device_id'      => $device->id,

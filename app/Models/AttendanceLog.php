@@ -17,7 +17,7 @@ class AttendanceLog extends Model
         'work_code',
         'raw_line_data',
         'status',
-        'failure_reason',
+        //'failure_reason',
     ];
 
     protected $casts = [
