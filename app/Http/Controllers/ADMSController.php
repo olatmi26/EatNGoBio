@@ -281,9 +281,9 @@ class ADMSController extends Controller
             ];
         }
 
-        // EAGER LOAD: Get all employees with their shifts in ONE query
+        // EAGER LOAD: Get all employees with their shifts
         $employees = Employee::whereIn('employee_id', array_unique($pins))
-            ->with(['shift']) // Eager load shift relationship
+            ->with(['shift'])
             ->get()
             ->keyBy('employee_id');
 
@@ -296,24 +296,52 @@ class ADMSController extends Controller
 
             $dateTime     = trim($parts[1]);
             $rawPunchType = (int) trim($parts[2]);
-            $verify       = trim($parts[3] ?? '1');
-            $workCode     = trim($parts[4] ?? '0');
+
+            // FIX: Handle verify_type - 255 means "unknown", map to 1 (fingerprint)
+            $verify = trim($parts[3] ?? '1');
+            if ($verify == 255 || $verify == '255') {
+                $verify = 1; // Default to fingerprint
+            }
+
+            $workCode = trim($parts[4] ?? '0');
 
             try {
-                $punchTime = \Carbon\Carbon::parse($dateTime);
+                // FIX: Parse datetime correctly - handle format "Y-m-d H:i:s"
+                $punchTime = Carbon::parse($dateTime);
+
+                // FIX: If time is 00:00:00, try to get from raw data field 6 or 7
+                if ($punchTime->format('H:i:s') == '00:00:00' && count($parts) > 6) {
+                    // Try to get time from other fields
+                    for ($i = 5; $i <= 7; $i++) {
+                        if (isset($parts[$i]) && preg_match('/\d{2}:\d{2}:\d{2}/', $parts[$i])) {
+                            $timeOnly  = $parts[$i];
+                            $dateOnly  = $punchTime->format('Y-m-d');
+                            $punchTime = Carbon::parse($dateOnly . ' ' . $timeOnly);
+                            break;
+                        }
+                    }
+                }
+
+                // If still 00:00:00, use current time as fallback
+                if ($punchTime->format('H:i:s') == '00:00:00') {
+                    $punchTime = now();
+                    Log::warning('⚠️ Using fallback time for punch', ['pin' => $pin, 'original' => $dateTime]);
+                }
+
                 if ($device->timezone && $device->timezone !== 'UTC') {
                     $punchTime = $punchTime->timezone($device->timezone);
                 } else {
                     $punchTime = $punchTime->timezone('Africa/Lagos');
                 }
             } catch (\Exception $e) {
+                Log::warning('⚠️ Invalid datetime format', ['datetime' => $dateTime, 'error' => $e->getMessage()]);
                 continue;
             }
 
-            // Get pre-loaded employee with shift
+            // Get pre-loaded employee
             $employee = $employees->get($pin);
 
-            // Pass the pre-loaded employee to the method
+            // Determine punch type based on sequence
             $punchType = $this->determinePunchTypeBySequence($pin, $punchTime, $rawPunchType, $employee);
 
             // Check duplicate
@@ -326,6 +354,12 @@ class ADMSController extends Controller
                 continue;
             }
 
+            // FIX: Ensure verify_type is within valid range (0-15, or use string)
+            $validVerify = (int) $verify;
+            if ($validVerify > 15) {
+                $validVerify = 1; // Default to fingerprint
+            }
+
             $attendanceLog = AttendanceLog::create([
                 'device_id'     => $device->id,
                 'device_sn'     => $device->serial_number,
@@ -333,7 +367,7 @@ class ADMSController extends Controller
                 'employee_id'   => $employee?->id,
                 'punch_time'    => $punchTime,
                 'punch_type'    => $punchType,
-                'verify_type'   => $verify,
+                'verify_type'   => $validVerify, // FIXED: Use valid range
                 'work_code'     => $workCode,
                 'raw_line_data' => $line,
                 'status'        => 'success',
@@ -341,6 +375,12 @@ class ADMSController extends Controller
 
             event(new AttendanceRecorded($attendanceLog));
             $saved++;
+
+            Log::info('✅ Punch saved successfully', [
+                'pin'  => $pin,
+                'time' => $punchTime->format('Y-m-d H:i:s'),
+                'type' => $punchType == 0 ? 'IN' : 'OUT',
+            ]);
         }
 
         Log::info('📝 Attendance logs processed', [
