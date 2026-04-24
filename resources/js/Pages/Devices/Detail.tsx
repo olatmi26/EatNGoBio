@@ -4,6 +4,7 @@ import AppLayout from "@/Layouts/AppLayout";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/Components/base/Toast";
 import DeviceCommandCenter from "./components/DeviceCommandCenter";
+import { DeviceCardSkeleton, TableSkeleton } from "@/Components/base/Skeleton";
 import axios from "axios";
 import type {
     PageProps,
@@ -422,7 +423,7 @@ export default function DeviceDetailPage() {
 
     return (
         <AppLayout title="">
-            <div className="p-6" style={{ background: bg, minHeight: "100vh" }}>
+            <div className="p-3 sm:p-4 md:p-6" style={{ background: bg, minHeight: "100vh" }}>
                 {/* Breadcrumb */}
                 <div className="flex items-center gap-2 mb-5 text-sm">
                     <button
@@ -551,7 +552,7 @@ export default function DeviceDetailPage() {
 
                     {/* Quick stats */}
                     <div
-                        className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5"
+                        className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-5 pt-5"
                         style={{ borderTop: `1px solid ${border}` }}
                     >
                         {[
@@ -614,7 +615,7 @@ export default function DeviceDetailPage() {
 
                 {/* Tabs */}
                 <div
-                    className="flex gap-1 mb-5 overflow-x-auto"
+                    className="flex gap-1 mb-5 overflow-x-auto pb-1"
                     style={{ borderBottom: `1px solid ${border}` }}
                 >
                     {TABS.map((tab) => (
@@ -1315,16 +1316,9 @@ export default function DeviceDetailPage() {
                             {/* Table */}
                             <div className="overflow-x-auto">
                                 {isEmployeesLoading ? (
-                                    <div className="p-12 text-center">
-                                        <div className="inline-block w-8 h-8 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                                        <p
-                                            className="text-sm mt-3"
-                                            style={{ color: textSecondary }}
-                                        >
-                                            Loading employees...
-                                        </p>
-                                    </div>
+                                     <TableSkeleton rows={5} columns={5} />
                                 ) : (
+
                                     <table className="w-full min-w-[800px]">
                                         <thead>
                                             <tr

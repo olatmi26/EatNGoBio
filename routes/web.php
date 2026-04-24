@@ -7,6 +7,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\DeviceEmployeeManagerController;
 use App\Http\Controllers\DevicePullController;
 use App\Http\Controllers\EmployeeCompensationController;
 use App\Http\Controllers\EmployeeController;
@@ -43,7 +44,7 @@ Route::prefix('iclock/api')->group(function () {
     Route::post('/terminals/', [DeviceApiController::class, 'store']);
     Route::put('/terminals/{id}/', [DeviceApiController::class, 'update']);
     Route::delete('/terminals/{id}/', [DeviceApiController::class, 'destroy']);
-    
+
     // Device actions
     Route::post('/terminals/upload_all/', [DeviceApiController::class, 'uploadAll']);
     Route::post('/terminals/upload_transaction/', [DeviceApiController::class, 'uploadTransaction']);
@@ -68,28 +69,34 @@ Route::middleware(['auth'])->group(function () {
     // Dashboard
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     // Devices acrosss all locations
-    Route::get('/devices', [DeviceController::class, 'index'])->name('devices.index');
-    Route::post('/devices', [DeviceController::class, 'store'])->name('devices.store');
-    Route::get('/devices/{id}', [DeviceController::class, 'show'])->name('devices.show');
-    Route::put('/devices/{id}', [DeviceController::class, 'update'])->name('devices.update');
-    Route::delete('/devices/{id}', [DeviceController::class, 'destroy'])->name('devices.destroy');
-    Route::post('/devices/{id}/command', [DeviceController::class, 'sendCommand'])->name('devices.command');
-    Route::get('/devices/{id}/employees', [DeviceController::class, 'employees'])->name('devices.employees');
-    Route::post('/devices/pending/{id}/approve', [DeviceController::class, 'approve'])->name('devices.approve');
-    Route::post('/devices/pending/{id}/reject', [DeviceController::class, 'reject'])->name('devices.reject');
-    Route::post('/devices/batch-approve', [DeviceController::class, 'batchApprove'])->name('devices.batch-approve');
-    Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('devices.live-stats');
-    Route::post('/devices/{id}/sync-time', [DeviceController::class, 'syncTime'])->name('devices.sync-time');
-    Route::post('/devices/{id}/sync-users', [DeviceController::class, 'syncAllUsers'])->name('devices.sync-users');
-    Route::get('/devices/{id}/pending-commands', [DeviceController::class, 'pendingCommands'])->name('devices.pending-commands');
-    Route::get('/devices/{id}/command-history', [DeviceController::class, 'commandHistory'])->name('devices.command-history');
-    Route::post('/devices/{id}/retry-failed', [DeviceController::class, 'retryFailed'])->name('devices.retry-failed');
-
     Route::prefix('devices')->name('devices.')->group(function () {
-        Route::post('/{id}/pull', [DevicePullController::class, 'pullDevice'])->name('pull');
-        Route::get('/{id}/pull-status', [DevicePullController::class, 'pullStatus'])->name('pull-status');
+        Route::post('/pending/{id}/approve', [DeviceController::class, 'approve'])->name('approve');
+        Route::post('/pending/{id}/reject', [DeviceController::class, 'reject'])->name('reject');
+        Route::post('/batch-approve', [DeviceController::class, 'batchApprove'])->name('batch-approve');
+        Route::get('/api/devices/live-stats', [DeviceController::class, 'liveStats'])->name('live-stats');
         Route::post('/area/pull', [DevicePullController::class, 'pullArea'])->name('pull-area');
         Route::post('/pull/execute', [DevicePullController::class, 'executeNow'])->name('pull-execute');
+        Route::get('/employee-manager', [DeviceEmployeeManagerController::class, 'index'])->name('employee-manager');
+        Route::post('/sync-to-device', [DeviceEmployeeManagerController::class, 'syncToDevice'])->name('sync-to-device');
+
+        Route::post('/{id}/sync-from-device', [DeviceEmployeeManagerController::class, 'syncFromDevice'])->name('sync-from-device');
+        Route::post('/{id}/command', [DeviceController::class, 'sendCommand'])->name('command');
+        Route::get('/{id}/employees', [DeviceController::class, 'employees'])->name('employees');
+        Route::post('/{id}/sync-time', [DeviceController::class, 'syncTime'])->name('sync-time');
+        Route::post('/{id}/sync-users', [DeviceController::class, 'syncAllUsers'])->name('sync-users');
+        Route::get('/{id}/pending-commands', [DeviceController::class, 'pendingCommands'])->name('pending-commands');
+        Route::get('/{id}/command-history', [DeviceController::class, 'commandHistory'])->name('command-history');
+        Route::post('/{id}/retry-failed', [DeviceController::class, 'retryFailed'])->name('retry-failed');
+        Route::post('/{id}/pull', [DevicePullController::class, 'pullDevice'])->name('pull');
+        Route::get('/{id}/pull-status', [DevicePullController::class, 'pullStatus'])->name('pull-status');
+        Route::get('/{id}', [DeviceController::class, 'show'])->name('show');
+        Route::put('/{id}', [DeviceController::class, 'update'])->name('update');
+        Route::delete('/{id}', [DeviceController::class, 'destroy'])->name('destroy');
+
+       
+
+        Route::get('/', [DeviceController::class, 'index'])->name('index');
+        Route::post('/', [DeviceController::class, 'store'])->name('store');
     });
 
     // Employees
@@ -293,9 +300,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/profile/avatar', [ProfileController::class, 'updateAvatar'])->name('profile.avatar');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
 
-
-
-    Route::get('/admin/pull-attendance/{deviceId}', function($deviceId) {
+    Route::get('/admin/pull-attendance/{deviceId}', function ($deviceId) {
         $device = App\Models\Device::find($deviceId);
         if ($device && $device->is_online) {
             $service = new DeviceCommandService();

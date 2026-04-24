@@ -8,6 +8,8 @@ import Modal from "@/Components/base/Modal";
 import ConfirmDialog from "@/Components/base/ConfirmDialog";
 import { useEcho } from "@/hooks/useEcho";
 import type { PageProps, DeviceItem, PendingDeviceItem } from "@/types";
+import EmployeeManager from "./components/EmployeeManager";
+import FlyoutPanel from "@/Components/base/FlyoutPanel";
 
 interface DeviceAnalyticItem {
     id: number;
@@ -54,7 +56,7 @@ interface Props extends PageProps {
     };
 }
 
-type TabKey = "devices" | "analytics";
+type TabKey = "devices" | "analytics" | "employee-manager";
 
 const TABS: {
     key: TabKey;
@@ -73,6 +75,12 @@ const TABS: {
         label: "Device Analytics",
         icon: "ri-bar-chart-2-line",
         mobileLabel: "Analytics",
+    },
+    {
+        key: "employee-manager",
+        label: "Employee Manager",
+        icon: "ri-exchange-line",
+        mobileLabel: "Manager",
     },
 ];
 
@@ -97,6 +105,13 @@ const emptyForm = {
     heartbeat: 60,
 };
 type DeviceForm = typeof emptyForm;
+
+const getInitialTab = (): TabKey => {
+    const hash = window.location.hash.slice(1);
+    if (hash === "analytics") return "analytics";
+    if (hash === "employee-manager") return "employee-manager";
+    return "devices";
+};
 
 // ========== SKELETON LOADERS ==========
 const StatCardSkeleton = ({ isDark }: { isDark: boolean }) => {
@@ -202,12 +217,14 @@ const DeviceCard = ({
     onView,
     onEdit,
     onDelete,
+    onAssign,
 }: {
     device: DeviceItem;
     isDark: boolean;
     onView: (id: number) => void;
     onEdit: (d: DeviceItem) => void;
     onDelete: (id: number) => void;
+    onAssign: (id: number) => void;
 }) => {
     const border = isDark ? "#374151" : "#e5e7eb";
     const textPrimary = isDark ? "#f9fafb" : "#111827";
@@ -351,6 +368,14 @@ const DeviceCard = ({
                 >
                     <i className="ri-delete-bin-line"></i>
                 </button>
+                <button
+                    onClick={() => onAssign(device.id)}
+                    className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ color: "#7c3aed" }}
+                    title="Assign Employees"
+                >
+                    <i className="ri-user-add-line"></i>
+                </button>
             </div>
         </div>
     );
@@ -362,6 +387,12 @@ export default function DevicesPage() {
     const { showToast } = useToast();
     const { props } = usePage<Props>();
     const { subscribe } = useEcho();
+
+    // MOVED INSIDE THE COMPONENT - THESE WERE THE CAUSE OF THE ERROR
+    const [showEmployeeManager, setShowEmployeeManager] = useState(false);
+    const [selectedDeviceForManager, setSelectedDeviceForManager] = useState<
+        number | null
+    >(null);
 
     const [devices, setDevices] = useState<DeviceItem[]>(
         props.devices?.data || [],
@@ -387,7 +418,7 @@ export default function DevicesPage() {
         total: props.deviceAnalytics?.total || 0,
     });
 
-    const [activeTab, setActiveTab] = useState<TabKey>("devices");
+    const [activeTab, setActiveTab] = useState<TabKey>(getInitialTab());
     const [isLoading, setIsLoading] = useState(false);
     const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
     const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -409,6 +440,12 @@ export default function DevicesPage() {
     const textPrimary = isDark ? "#f9fafb" : "#111827";
     const textSecondary = isDark ? "#9ca3af" : "#6b7280";
     const inputBg = isDark ? "#374151" : "#f9fafb";
+
+    const handleTabChange = (tab: TabKey) => {
+        setActiveTab(tab);
+        window.location.hash = tab;
+        if (tab === "analytics" && !analytics.length) fetchAnalytics();
+    };
 
     // WebSocket for real-time updates
     useEffect(() => {
@@ -449,7 +486,7 @@ export default function DevicesPage() {
     // Polling fallback
     useEffect(() => {
         const interval = setInterval(() => {
-            fetch("/api/devices/live-stats", {
+            fetch("/devices/api/devices/live-stats", {
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
                     Accept: "application/json",
@@ -531,7 +568,7 @@ export default function DevicesPage() {
 
     const handleStatusChange = (value: string) => {
         setStatusFilter(value);
-        fetchDevices({ status: value, page: 1 });
+        fetchDevices({ status: value || undefined, page: 1 });
     };
     const handlePerPageChange = (value: number) => {
         setPerPage(value);
@@ -569,6 +606,18 @@ export default function DevicesPage() {
             setIsAnalyticsLoading(false);
         }
     }, [props.deviceAnalytics]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (activeTab === "devices") {
+                fetchDevices({ page: pagination.current_page });
+            }
+            if (activeTab === "analytics") {
+                fetchAnalytics(analyticsPagination.current_page);
+            }
+        }, 30000);
+        return () => clearInterval(interval);
+    }, [activeTab, pagination.current_page]);
 
     const openAdd = () => {
         setForm({ ...emptyForm });
@@ -757,14 +806,7 @@ export default function DevicesPage() {
                     {TABS.map((tab) => (
                         <button
                             key={tab.key}
-                            onClick={() => {
-                                setActiveTab(tab.key);
-                                if (
-                                    tab.key === "analytics" &&
-                                    !analytics.length
-                                )
-                                    fetchAnalytics();
-                            }}
+                            onClick={() => handleTabChange(tab.key)}
                             className="flex items-center gap-1.5 px-3 sm:px-5 py-2.5 text-xs sm:text-sm font-medium cursor-pointer whitespace-nowrap"
                             style={{
                                 color:
@@ -786,7 +828,7 @@ export default function DevicesPage() {
                     ))}
                 </div>
 
-                {/* Devices Tab */}
+                {/* Devices Tab - Same as before, but update DeviceCard to pass onAssign */}
                 {activeTab === "devices" && (
                     <>
                         {/* Filters */}
@@ -912,6 +954,8 @@ export default function DevicesPage() {
                                                     "Status",
                                                     "Activity",
                                                     "Users",
+                                                    "FP",
+                                                    "Face",
                                                     "",
                                                 ].map((h) => (
                                                     <th
@@ -1031,6 +1075,22 @@ export default function DevicesPage() {
                                                         >
                                                             {d.users || 0}
                                                         </td>
+                                                        <td
+                                                            className="px-4 py-3 text-sm text-center"
+                                                            style={{
+                                                                color: textPrimary,
+                                                            }}
+                                                        >
+                                                            {d.fp || 0}
+                                                        </td>
+                                                        <td
+                                                            className="px-4 py-3 text-sm text-center"
+                                                            style={{
+                                                                color: textPrimary,
+                                                            }}
+                                                        >
+                                                            {d.face || 0}
+                                                        </td>
                                                         <td className="px-4 py-3">
                                                             <div className="flex items-center gap-1">
                                                                 <button
@@ -1043,6 +1103,7 @@ export default function DevicesPage() {
                                                                     style={{
                                                                         color: textSecondary,
                                                                     }}
+                                                                    title="View"
                                                                 >
                                                                     <i className="ri-eye-line"></i>
                                                                 </button>
@@ -1056,8 +1117,26 @@ export default function DevicesPage() {
                                                                     style={{
                                                                         color: "#0891b2",
                                                                     }}
+                                                                    title="Edit"
                                                                 >
                                                                     <i className="ri-edit-line"></i>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setSelectedDeviceForManager(
+                                                                            d.id,
+                                                                        );
+                                                                        setShowEmployeeManager(
+                                                                            true,
+                                                                        );
+                                                                    }}
+                                                                    className="w-7 h-7 flex items-center justify-center rounded-lg"
+                                                                    style={{
+                                                                        color: "#7c3aed",
+                                                                    }}
+                                                                    title="Assign Employees"
+                                                                >
+                                                                    <i className="ri-user-add-line"></i>
                                                                 </button>
                                                                 <button
                                                                     onClick={() =>
@@ -1069,6 +1148,7 @@ export default function DevicesPage() {
                                                                     style={{
                                                                         color: "#dc2626",
                                                                     }}
+                                                                    title="Delete"
                                                                 >
                                                                     <i className="ri-delete-bin-line"></i>
                                                                 </button>
@@ -1112,6 +1192,10 @@ export default function DevicesPage() {
                                         }
                                         onEdit={openEdit}
                                         onDelete={(id) => setDeleteId(id)}
+                                        onAssign={(id) => {
+                                            setSelectedDeviceForManager(id);
+                                            setShowEmployeeManager(true);
+                                        }}
                                     />
                                 ))
                             ) : (
@@ -1241,31 +1325,36 @@ export default function DevicesPage() {
                 {/* Analytics Tab */}
                 {activeTab === "analytics" && (
                     <div className="space-y-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {/* Analytics Summary Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                             {[
                                 {
-                                    label: "Punches",
+                                    label: "Punches Today",
                                     value: totalPunchesToday,
-                                    icon: "ri-fingerprint-line",
+                                    icon: "ri-hand-coin-line",
                                     color: "#16a34a",
+                                    bg: "#dcfce7",
                                 },
                                 {
-                                    label: "Success Rate",
+                                    label: "Avg Success Rate",
                                     value: `${avgSuccessRate}%`,
-                                    icon: "ri-checkbox-circle-line",
+                                    icon: "ri-percent-line",
                                     color: "#0891b2",
+                                    bg: "#e0f2fe",
                                 },
                                 {
-                                    label: "Active",
+                                    label: "Active Devices",
                                     value: devicesWithActivity,
-                                    icon: "ri-bar-chart-2-line",
+                                    icon: "ri-checkbox-circle-line",
                                     color: "#7c3aed",
+                                    bg: "#ede9fe",
                                 },
                                 {
-                                    label: "Inactive",
+                                    label: "Inactive Devices",
                                     value: inactiveDevices,
-                                    icon: "ri-alert-line",
-                                    color: "#f59e0b",
+                                    icon: "ri-error-warning-line",
+                                    color: "#dc2626",
+                                    bg: "#fee2e2",
                                 },
                             ].map((s) => (
                                 <div
@@ -1278,25 +1367,23 @@ export default function DevicesPage() {
                                 >
                                     <div className="flex items-center gap-2">
                                         <div
-                                            className="w-8 h-8 rounded-lg flex items-center justify-center"
-                                            style={{
-                                                background: `${s.color}20`,
-                                            }}
+                                            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                            style={{ background: s.bg }}
                                         >
                                             <i
                                                 className={`${s.icon} text-base`}
                                                 style={{ color: s.color }}
                                             ></i>
                                         </div>
-                                        <div>
+                                        <div className="min-w-0">
                                             <p
-                                                className="text-lg font-bold"
-                                                style={{ color: textPrimary }}
+                                                className="text-lg font-bold truncate"
+                                                style={{ color: s.color }}
                                             >
                                                 {s.value}
                                             </p>
                                             <p
-                                                className="text-xs"
+                                                className="text-xs truncate"
                                                 style={{ color: textSecondary }}
                                             >
                                                 {s.label}
@@ -1306,6 +1393,8 @@ export default function DevicesPage() {
                                 </div>
                             ))}
                         </div>
+
+                        {/* Analytics Table */}
                         <div
                             className="rounded-xl overflow-hidden"
                             style={{
@@ -1313,27 +1402,27 @@ export default function DevicesPage() {
                                 border: `1px solid ${border}`,
                             }}
                         >
-                            <div
-                                className="px-4 py-3"
-                                style={{ borderBottom: `1px solid ${border}` }}
-                            >
-                                <h3
-                                    className="text-sm font-semibold"
-                                    style={{ color: textPrimary }}
+                            {isAnalyticsLoading ? (
+                                <div
+                                    className="p-8 text-center"
+                                    style={{ color: textSecondary }}
                                 >
-                                    Device Performance
-                                </h3>
-                            </div>
-                            <div className="overflow-x-auto">
-                                {isAnalyticsLoading ? (
-                                    <div
-                                        className="p-4 text-center"
-                                        style={{ color: textSecondary }}
-                                    >
-                                        Loading...
-                                    </div>
-                                ) : (
-                                    <table className="w-full min-w-[600px]">
+                                    <i className="ri-loader-4-line animate-spin text-3xl mb-2 block"></i>
+                                    <p className="text-sm">
+                                        Loading analytics...
+                                    </p>
+                                </div>
+                            ) : analytics.length === 0 ? (
+                                <div
+                                    className="py-16 text-center"
+                                    style={{ color: textSecondary }}
+                                >
+                                    <i className="ri-bar-chart-2-line text-4xl mb-3 block"></i>
+                                    <p>No analytics data available</p>
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[700px]">
                                         <thead>
                                             <tr
                                                 style={{
@@ -1344,12 +1433,14 @@ export default function DevicesPage() {
                                                     "Device",
                                                     "Location",
                                                     "Status",
-                                                    "Punches",
-                                                    "Success",
+                                                    "Punches Today",
+                                                    "Weekly Total",
+                                                    "Success Rate",
+                                                    "Last Sync",
                                                 ].map((h) => (
                                                     <th
                                                         key={h}
-                                                        className="px-3 py-2 text-left text-xs font-semibold"
+                                                        className="px-4 py-3 text-left text-xs font-semibold"
                                                         style={{
                                                             color: textSecondary,
                                                         }}
@@ -1360,80 +1451,194 @@ export default function DevicesPage() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {analytics.map((dev) => (
+                                            {analytics.map((a) => (
                                                 <tr
-                                                    key={dev.id}
+                                                    key={a.id}
                                                     style={{
                                                         borderBottom: `1px solid ${border}`,
                                                     }}
+                                                    onMouseEnter={(e) =>
+                                                        (e.currentTarget.style.background =
+                                                            isDark
+                                                                ? "#374151"
+                                                                : "#f9fafb")
+                                                    }
+                                                    onMouseLeave={(e) =>
+                                                        (e.currentTarget.style.background =
+                                                            "transparent")
+                                                    }
                                                 >
-                                                    <td className="px-3 py-2">
-                                                        <span
+                                                    <td className="px-4 py-3">
+                                                        <p
                                                             className="text-sm font-medium"
                                                             style={{
                                                                 color: textPrimary,
                                                             }}
                                                         >
-                                                            {dev.deviceName}
-                                                        </span>
+                                                            {a.deviceName}
+                                                        </p>
                                                     </td>
                                                     <td
-                                                        className="px-3 py-2 text-xs"
+                                                        className="px-4 py-3 text-sm"
                                                         style={{
                                                             color: textSecondary,
                                                         }}
                                                     >
-                                                        {dev.location}
+                                                        {a.location}
                                                     </td>
-                                                    <td className="px-3 py-2">
+                                                    <td className="px-4 py-3">
                                                         <span
-                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
                                                             style={{
                                                                 background:
-                                                                    dev.status ===
+                                                                    a.status ===
                                                                     "online"
                                                                         ? "#dcfce7"
                                                                         : "#fee2e2",
                                                                 color:
-                                                                    dev.status ===
+                                                                    a.status ===
                                                                     "online"
                                                                         ? "#16a34a"
                                                                         : "#dc2626",
                                                             }}
                                                         >
-                                                            {dev.status}
+                                                            <span
+                                                                className={`w-1.5 h-1.5 rounded-full ${a.status === "online" ? "animate-pulse" : ""}`}
+                                                                style={{
+                                                                    background:
+                                                                        a.status ===
+                                                                        "online"
+                                                                            ? "#16a34a"
+                                                                            : "#dc2626",
+                                                                }}
+                                                            ></span>
+                                                            {a.status}
                                                         </span>
                                                     </td>
                                                     <td
-                                                        className="px-3 py-2 text-sm font-bold"
-                                                        style={{
-                                                            color:
-                                                                dev.punchesToday >
-                                                                0
-                                                                    ? textPrimary
-                                                                    : textSecondary,
-                                                        }}
-                                                    >
-                                                        {dev.punchesToday ||
-                                                            "—"}
-                                                    </td>
-                                                    <td
-                                                        className="px-3 py-2 text-sm"
+                                                        className="px-4 py-3 text-sm font-semibold"
                                                         style={{
                                                             color: textPrimary,
                                                         }}
                                                     >
-                                                        {dev.successRate}%
+                                                        {a.punchesToday}
+                                                    </td>
+                                                    <td
+                                                        className="px-4 py-3 text-sm"
+                                                        style={{
+                                                            color: textPrimary,
+                                                        }}
+                                                    >
+                                                        {a.weeklyPunches?.reduce(
+                                                            (s, n) => s + n,
+                                                            0,
+                                                        ) ?? 0}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <div
+                                                                className="flex-1 h-1.5 rounded-full"
+                                                                style={{
+                                                                    background:
+                                                                        isDark
+                                                                            ? "#374151"
+                                                                            : "#e5e7eb",
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    className="h-1.5 rounded-full"
+                                                                    style={{
+                                                                        width: `${a.successRate}%`,
+                                                                        background:
+                                                                            a.successRate >=
+                                                                            80
+                                                                                ? "#16a34a"
+                                                                                : a.successRate >=
+                                                                                    50
+                                                                                  ? "#ca8a04"
+                                                                                  : "#dc2626",
+                                                                    }}
+                                                                ></div>
+                                                            </div>
+                                                            <span
+                                                                className="text-xs font-medium w-10 text-right"
+                                                                style={{
+                                                                    color: textPrimary,
+                                                                }}
+                                                            >
+                                                                {a.successRate}%
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                    <td
+                                                        className="px-4 py-3 text-xs"
+                                                        style={{
+                                                            color: textSecondary,
+                                                        }}
+                                                    >
+                                                        {a.lastSync}
                                                     </td>
                                                 </tr>
                                             ))}
                                         </tbody>
                                     </table>
-                                )}
-                            </div>
+                                </div>
+                            )}
                         </div>
+
+                        {/* Analytics Pagination */}
+                        {!isAnalyticsLoading &&
+                            analyticsPagination.last_page > 1 && (
+                                <div className="flex items-center justify-between">
+                                    <span
+                                        className="text-xs"
+                                        style={{ color: textSecondary }}
+                                    >
+                                        Page {analyticsPagination.current_page}{" "}
+                                        of {analyticsPagination.last_page} ·{" "}
+                                        {analyticsPagination.total} devices
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() =>
+                                                fetchAnalytics(
+                                                    analyticsPagination.current_page -
+                                                        1,
+                                                )
+                                            }
+                                            disabled={
+                                                analyticsPagination.current_page ===
+                                                1
+                                            }
+                                            className="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-50"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            <i className="ri-arrow-left-s-line"></i>
+                                        </button>
+                                        <button
+                                            onClick={() =>
+                                                fetchAnalytics(
+                                                    analyticsPagination.current_page +
+                                                        1,
+                                                )
+                                            }
+                                            disabled={
+                                                analyticsPagination.current_page ===
+                                                analyticsPagination.last_page
+                                            }
+                                            className="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-50"
+                                            style={{ color: textSecondary }}
+                                        >
+                                            <i className="ri-arrow-right-s-line"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                     </div>
                 )}
+
+                {/* Employee Manager Tab */}
+                {activeTab === "employee-manager" && <EmployeeManager />}
             </div>
 
             {/* Modals */}
@@ -1614,6 +1819,23 @@ export default function DevicesPage() {
                 confirmLabel="Remove"
                 danger
             />
+
+            {/* Flyout Panel for Assign Employees */}
+            <FlyoutPanel
+                open={showEmployeeManager}
+                onClose={() => setShowEmployeeManager(false)}
+                title="Employee Device Manager"
+                subtitle={`Manage employees for ${devices.find((d) => d.id === selectedDeviceForManager)?.name || ""}`}
+                width="900px"
+                side="right"
+            >
+                {selectedDeviceForManager && (
+                    <EmployeeManager
+                        initialDeviceId={selectedDeviceForManager}
+                        onClose={() => setShowEmployeeManager(false)}
+                    />
+                )}
+            </FlyoutPanel>
         </AppLayout>
     );
 }

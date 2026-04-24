@@ -1,4 +1,3 @@
-// app/Models/LeaveRequest.php
 <?php
 
 namespace App\Models;

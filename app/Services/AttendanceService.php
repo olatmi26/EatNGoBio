@@ -547,4 +547,220 @@ class AttendanceService
 
         return $result;
     }
+
+    /**
+     * Get attendance list for a specific date with filters
+     */
+    public function attendanceList(Carbon $date, array $filters = []): array
+    {
+        $query = AttendanceLog::with(['employee', 'device'])
+            ->whereDate('punch_time', $date);
+
+        if (! empty($filters['search'])) {
+            $search = $filters['search'];
+            $query->whereHas('employee', function ($q) use ($search) {
+                $q->where('first_name', 'like', "%{$search}%")
+                    ->orWhere('last_name', 'like', "%{$search}%")
+                    ->orWhere('employee_id', 'like', "%{$search}%");
+            });
+        }
+
+        if (! empty($filters['department'])) {
+            $query->whereHas('employee', function ($q) use ($filters) {
+                $q->where('department', $filters['department']);
+            });
+        }
+
+        if (! empty($filters['area'])) {
+            $query->whereHas('employee', function ($q) use ($filters) {
+                $q->where('area', $filters['area']);
+            });
+        }
+
+        $logs = $query->orderBy('punch_time', 'desc')->get();
+
+        // Group by employee to create attendance records
+        $records = [];
+        foreach ($logs as $log) {
+            $employee = $log->employee;
+            if (! $employee) {
+                continue;
+            }
+
+            $employeeId = $employee->employee_id;
+            if (! isset($records[$employeeId])) {
+                $records[$employeeId] = [
+                    'id'           => $log->id,
+                    'employeeId'   => $employeeId,
+                    'employeeName' => $employee->full_name,
+                    'department'   => $employee->department ?? '-',
+                    'area'         => $employee->area ?? '-',
+                    'device'       => $log->device?->name ?? $log->device_sn,
+                    'date'         => $log->punch_time->format('Y-m-d'),
+                    'checkIn'      => null,
+                    'checkOut'     => null,
+                    'workHours'    => 0,
+                    'status'       => 'absent',
+                    'punchType'    => $log->verify_type_label,
+                ];
+            }
+
+            if ($log->punch_type == 0 || $log->punch_type == 3 || $log->punch_type == 4) {
+                $records[$employeeId]['checkIn'] = $log->punch_time->format('H:i:s');
+            } else if ($log->punch_type == 1 || $log->punch_type == 2 || $log->punch_type == 5) {
+                $records[$employeeId]['checkOut'] = $log->punch_time->format('H:i:s');
+            }
+        }
+
+        // Calculate work hours and status
+        foreach ($records as &$record) {
+            if ($record['checkIn'] && $record['checkOut']) {
+                $checkIn             = Carbon::parse($record['date'] . ' ' . $record['checkIn']);
+                $checkOut            = Carbon::parse($record['date'] . ' ' . $record['checkOut']);
+                $hours               = $checkOut->diffInMinutes($checkIn) / 60;
+                $record['workHours'] = round($hours, 1);
+                $record['status']    = $hours >= 4 ? 'present' : 'half-day';
+            } else if ($record['checkIn']) {
+                $record['status'] = 'present';
+            } else {
+                $record['status'] = 'absent';
+            }
+
+            // Apply status filter
+            if (! empty($filters['status']) && $filters['status'] !== 'all' && $record['status'] !== $filters['status']) {
+                unset($record);
+            }
+        }
+
+        return array_values($records);
+    }
+
+/**
+ * Get department statistics for analytics
+ */
+    public function deptStats(): array
+    {
+        $today       = Carbon::today();
+        $departments = Employee::where('active', true)
+            ->select('department')
+            ->distinct()
+            ->pluck('department')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $stats  = [];
+        $colors = ['#16a34a', '#0891b2', '#f59e0b', '#7c3aed', '#db2777', '#dc2626', '#d97706', '#65a30d'];
+        $i      = 0;
+
+        foreach ($departments as $dept) {
+            $total = Employee::where('department', $dept)->where('active', true)->count();
+
+            $presentCount = AttendanceLog::whereDate('punch_time', $today)
+                ->where('punch_type', 0)
+                ->whereHas('employee', function ($q) use ($dept) {
+                    $q->where('department', $dept);
+                })
+                ->distinct('employee_pin')
+                ->count();
+
+            $lateCount = $this->countLateByDepartment($dept, $today);
+            $rate      = $total > 0 ? round(($presentCount / $total) * 100, 1) : 0;
+
+            // Calculate trend (compare with yesterday)
+            $yesterday        = $today->copy()->subDay();
+            $yesterdayPresent = AttendanceLog::whereDate('punch_time', $yesterday)
+                ->where('punch_type', 0)
+                ->whereHas('employee', function ($q) use ($dept) {
+                    $q->where('department', $dept);
+                })
+                ->distinct('employee_pin')
+                ->count();
+            $yesterdayTotal = Employee::where('department', $dept)->where('active', true)->count();
+            $yesterdayRate  = $yesterdayTotal > 0 ? round(($yesterdayPresent / $yesterdayTotal) * 100, 1) : 0;
+            $trend          = round($rate - $yesterdayRate, 1);
+
+            $stats[] = [
+                'id'               => $i + 1,
+                'department'       => $dept ?? 'Unassigned',
+                'totalEmployees'   => $total,
+                'presentToday'     => $presentCount,
+                'absentToday'      => $total - $presentCount,
+                'lateToday'        => $lateCount,
+                'attendanceRate'   => $rate,
+                'trend'            => $trend > 0 ? [$trend] : [0],
+                'topPerformers'    => $this->getTopPerformersByDepartment($dept),
+                'absenteeismTrend' => [0, 0, 0],
+                'color'            => $colors[$i++ % count($colors)],
+            ];
+        }
+
+        // Sort by attendance rate descending
+        usort($stats, fn($a, $b) => $b['attendanceRate'] - $a['attendanceRate']);
+
+        return $stats;
+    }
+
+/**
+ * Count late employees by department on a specific date
+ */
+    private function countLateByDepartment(string $department, Carbon $date): int
+    {
+        $checkIns = AttendanceLog::whereDate('punch_time', $date)
+            ->where('punch_type', 0)
+            ->whereHas('employee', function ($q) use ($department) {
+                $q->where('department', $department);
+            })
+            ->selectRaw('employee_pin, MIN(punch_time) as first_punch')
+            ->groupBy('employee_pin')
+            ->get();
+
+        $late = 0;
+        foreach ($checkIns as $row) {
+            $employee = Employee::where('employee_id', $row->employee_pin)->first();
+            if (! $employee || ! $employee->shift) {
+                $start     = '08:00';
+                $threshold = 15;
+            } else {
+                $shift     = $employee->shift;
+                $start     = $shift->start_time ?? '08:00';
+                $threshold = $shift->late_threshold ?? 15;
+            }
+
+            $deadline = $date->copy()->setTimeFromTimeString($start)->addMinutes($threshold);
+            if (Carbon::parse($row->first_punch)->gt($deadline)) {
+                $late++;
+            }
+        }
+
+        return $late;
+    }
+
+/**
+ * Get top performers by department
+ */
+    private function getTopPerformersByDepartment(string $department): array
+    {
+        $today     = Carbon::today();
+        $employees = Employee::where('department', $department)
+            ->where('active', true)
+            ->limit(5)
+            ->get();
+
+        $performers = [];
+        foreach ($employees as $emp) {
+            $hasPunch = AttendanceLog::where('employee_pin', $emp->employee_id)
+                ->whereDate('punch_time', $today)
+                ->where('punch_type', 0)
+                ->exists();
+
+            $performers[] = [
+                'name' => $emp->first_name . ' ' . $emp->last_name,
+                'rate' => $hasPunch ? 100 : 0,
+            ];
+        }
+
+        return $performers;
+    }
+
 }

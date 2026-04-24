@@ -34,6 +34,11 @@ const navGroups: NavGroup[] = [
                 label: "Devices",
                 routeName: "devices.index",
             },
+            {
+                icon: "ri-exchange-line",
+                label: "Employee Manager",
+                routeName: "devices.employee-manager",
+            },
         ],
     },
     {

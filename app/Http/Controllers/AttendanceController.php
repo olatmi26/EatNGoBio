@@ -32,8 +32,8 @@ class AttendanceController extends Controller
             'records'     => $records,
             'date'        => $date->toDateString(),
             'summary'     => compact('present', 'late', 'absent', 'halfDay'),
-            'departments' => Department::orderBy('name')->pluck('name'),
-            'areas'       => Location::orderBy('name')->pluck('name'),
+            'departments' => Department::orderBy('name')->pluck('name')->values()->all(),
+            'areas'       => Location::orderBy('name')->pluck('name')->values()->all(),
             'filters'     => $filters,
             'unreadCount' => $this->notifs->unreadCount(auth()->id()),
         ]);
