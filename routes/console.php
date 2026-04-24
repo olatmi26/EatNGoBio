@@ -63,7 +63,7 @@ app()->booted(function () {
         }
     })->hourly();
 
-    $schedule->call(function () {
+  /*   $schedule->call(function () {
         $devices = Device::where('approved', true)->get();
         foreach ($devices as $device) {
             if ($device->is_online) {
@@ -77,7 +77,7 @@ app()->booted(function () {
                 }
             }
         }
-    })->everyTwoMinutes();
+    })->everyTwoMinutes(); */
 
     // Mark offline devices every minute
     $schedule->command('devices:mark-offline')->everyMinute();

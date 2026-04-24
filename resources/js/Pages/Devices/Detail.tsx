@@ -392,6 +392,51 @@ export default function DeviceDetailPage() {
         }
     };
 
+    const [syncHistory, setSyncHistory] = useState({
+        data: [],
+        current_page: 1,
+        last_page: 1,
+        per_page: 15,
+        total: 0,
+    });
+
+    const [isLoadingSyncHistory, setIsLoadingSyncHistory] = useState(false);
+
+    const fetchSyncHistory = useCallback(
+        async (page: number = 1, perPage: number = 15) => {
+            if (!device?.id) return;
+
+            setIsLoadingSyncHistory(true);
+            try {
+                const response = await fetch(
+                    `/devices/${device.id}/sync-history?page=${page}&per_page=${perPage}`,
+                    {
+                        headers: {
+                            Accept: "application/json",
+                            "X-Requested-With": "XMLHttpRequest",
+                        },
+                    },
+                );
+
+                if (!response.ok)
+                    throw new Error("Failed to fetch sync history");
+
+                const data = await response.json();
+                setSyncHistory(data);
+            } catch (error) {
+                console.error("Error fetching sync history:", error);
+                showToast(
+                    "error",
+                    "Load Failed",
+                    "Could not load sync history",
+                );
+            } finally {
+                setIsLoadingSyncHistory(false);
+            }
+        },
+        [device?.id],
+    );
+
     const handlePullData = async (
         deviceId: number,
         types: string[] = ["attendance", "users"],
@@ -423,7 +468,10 @@ export default function DeviceDetailPage() {
 
     return (
         <AppLayout title="">
-            <div className="p-3 sm:p-4 md:p-6" style={{ background: bg, minHeight: "100vh" }}>
+            <div
+                className="p-3 sm:p-4 md:p-6"
+                style={{ background: bg, minHeight: "100vh" }}
+            >
                 {/* Breadcrumb */}
                 <div className="flex items-center gap-2 mb-5 text-sm">
                     <button
@@ -1316,9 +1364,8 @@ export default function DeviceDetailPage() {
                             {/* Table */}
                             <div className="overflow-x-auto">
                                 {isEmployeesLoading ? (
-                                     <TableSkeleton rows={5} columns={5} />
+                                    <TableSkeleton rows={5} columns={5} />
                                 ) : (
-
                                     <table className="w-full min-w-[800px]">
                                         <thead>
                                             <tr

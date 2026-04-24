@@ -406,11 +406,19 @@ class DeviceCommandService
      * @param Device $device
      * @return \Illuminate\Support\Collection
      */
-    public function getCommandHistory(Device $device)
+    public function getCommandHistory(Device $device): array
     {
         return DeviceCommand::where('device_id', $device->id)
             ->orderByDesc('created_at')
-            ->get();
+            ->get()
+            ->map(fn($c) => [
+                'id'       => $c->id,
+                'command'  => $c->command,
+                'sentAt'   => $c->created_at->format('Y-m-d H:i:s'),
+                'status'   => $c->status,
+                'response' => $c->response ?? '-',
+            ])
+            ->toArray();
     }
 
     /**
@@ -464,5 +472,4 @@ class DeviceCommandService
         return $newCommands;
     }
 
-    
 }

@@ -3,6 +3,7 @@ namespace App\Http\Controllers;
 
 use App\Models\BiometricTemplate;
 use App\Models\Device;
+use App\Models\DeviceSyncLog;
 use App\Models\Employee;
 use App\Models\Location;
 use App\Models\PendingDevice;
@@ -210,11 +211,48 @@ class DeviceController extends Controller
     /**
      * Get command history for a device
      */
-    public function commandHistory(int $id): JsonResponse
+    public function commandHistory(Request $request, int $id): JsonResponse
     {
         $device = Device::findOrFail($id);
+
+        $perPage = (int) $request->query('per_page', 15);
+        $page    = (int) $request->query('page', 1);
+
+        // getCommandHistory should return a collection or array of all commands
+        $historyCollection = collect($this->commandService->getCommandHistory($device));
+        $total             = $historyCollection->count();
+        $history           = $historyCollection->forPage($page, $perPage)->values();
+
         return response()->json([
-            'history' => $this->commandService->getCommandHistory($device),
+            'history'      => $history,
+            'current_page' => $page,
+            'per_page'     => $perPage,
+            'total'        => $total,
+            'last_page'    => (int) ceil($total / $perPage),
+            'from'         => $total > 0 ? (($page - 1) * $perPage) + 1 : null,
+            'to'           => $total > 0 ? min($page * $perPage, $total) : null,
+        ]);
+    }
+
+    public function syncHistory(Request $request, int $id): JsonResponse
+    {
+        $device = Device::findOrFail($id);
+
+        $perPage = (int) $request->query('per_page', 15);
+        $page    = (int) $request->query('page', 1);
+
+        $syncHistory = DeviceSyncLog::where('device_id', $device->id)
+            ->orderByDesc('synced_at')
+            ->paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'data'         => $syncHistory->items(),
+            'current_page' => $syncHistory->currentPage(),
+            'last_page'    => $syncHistory->lastPage(),
+            'per_page'     => $syncHistory->perPage(),
+            'total'        => $syncHistory->total(),
+            'from'         => $syncHistory->firstItem(),
+            'to'           => $syncHistory->lastItem(),
         ]);
     }
 
