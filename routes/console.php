@@ -63,21 +63,20 @@ app()->booted(function () {
             }
         }
     })->everyThirtyMinutes();
-});
 
-
-Schedule::call(function () {
-    $devices = Device::where('approved', true)->get();
-    foreach ($devices as $device) {
-        if ($device->is_online) {
-            try {
-                if ($device instanceof Device && $device->is_online) {
-                    app(DeviceCommandService::class)->sendCommand($device, 'GET_ATTLOG');
+    $schedule->call(function () {
+        $devices = Device::where('approved', true)->get();
+        foreach ($devices as $device) {
+            if ($device->is_online) {
+                try {
+                    if ($device instanceof Device && $device->is_online) {
+                        app(DeviceCommandService::class)->sendCommand($device, 'GET_ATTLOG');
+                    }
+                    \Illuminate\Support\Facades\Log::info('Auto-pull attendance', ['device' => $device->serial_number]);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Auto-pull failed', ['device' => $device->serial_number, 'error' => $e->getMessage()]);
                 }
-                \Illuminate\Support\Facades\Log::info('Auto-pull attendance', ['device' => $device->serial_number]);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Auto-pull failed', ['device' => $device->serial_number, 'error' => $e->getMessage()]);
             }
         }
-    }
-})->everyFiveMinutes();
+    })->everyFiveMinutes();
+});
