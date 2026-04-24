@@ -21,6 +21,7 @@ use App\Http\Controllers\SalaryStructureController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\UserLocationAccessController;
+use App\Services\DeviceCommandService;
 use Illuminate\Support\Facades\Route;
 
 // =========================================================================
@@ -291,6 +292,18 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::post('/profile/avatar', [ProfileController::class, 'updateAvatar'])->name('profile.avatar');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
+
+
+
+    Route::get('/admin/pull-attendance/{deviceId}', function($deviceId) {
+        $device = App\Models\Device::find($deviceId);
+        if ($device && $device->is_online) {
+            $service = new DeviceCommandService();
+            $service->sendCommand($device, 'GET_ATTLOG');
+            return back()->with('success', 'Pull command sent to device');
+        }
+        return back()->with('error', 'Device offline');
+    });
 
     // Logout
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');

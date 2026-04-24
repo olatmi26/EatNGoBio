@@ -66,4 +66,7 @@
 
         return back()->with('success', "Pull completed: {$results['attendance_pulled']} attendance, {$results['users_pulled']} users");
     }
+
+
+    
 }

@@ -139,4 +139,43 @@ class ScheduledPullService
             'can_pull_users' => $this->shouldPullUsers($device),
         ];
     }
+
+    public function executeScheduledPull(): array
+    {
+        $devices = Device::where('approved', true)->get();
+
+        $this->logDevices("Starting scheduled pull", $devices);
+
+        $results = [
+            'total'             => $devices->count(),
+            'attendance_pulled' => 0,
+            'users_pulled'      => 0,
+            'failed'            => 0,
+        ];
+
+        foreach ($devices as $device) {
+            $this->info("Processing device: {$device->serial_number}");
+
+            if (! $device->is_online) {
+                $this->warn("Device {$device->serial_number} is offline, skipping");
+                $results['failed']++;
+                continue;
+            }
+
+            try {
+                // Send GET_ATTLOG command
+                $cmd = $this->commandService->sendCommand($device, 'GET_ATTLOG');
+                $this->info("GET_ATTLOG command sent: " . ($cmd ? $cmd->id : 'FAILED'));
+
+                if ($cmd) {
+                    $results['attendance_pulled']++;
+                }
+            } catch (\Exception $e) {
+                $this->error("Failed: " . $e->getMessage());
+                $results['failed']++;
+            }
+        }
+
+        return $results;
+    }
 }
