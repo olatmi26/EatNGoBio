@@ -349,7 +349,7 @@ class ADMSController extends Controller
                     continue;
                 }
             } else {
-                Log::warning('⚠️ Employee not found for PIN', ['pin' => $pin, 'device' => $device->serial_number, 'status'=>202],);
+                Log::warning('⚠️ Employee not found for PIN', ['pin' => $pin, 'device' => $device->serial_number, 'status' => 202], );
             }
 
             // Save successful attendance log
@@ -385,17 +385,12 @@ class ADMSController extends Controller
 
     /**
      * Send handshake response
-     *
-     * TransFlag values (space-separated):
-     *   TransData   — enable data transfer
-     *   AttLog      — push attendance logs (ATTLOG)
-     *   OpLog       — push operation logs (OPERLOG) — contains USER/FP/FACE enrollment records
-     *   EnrollUser  — notify server when a user is enrolled on device
-     *   GetUserInfo — CRITICAL: tells device to push full USERINFO on connect
-     *   ChkWork     — work-code validation
      */
     private function sendHandshakeResponse(Device $device)
     {
+        // Calculate GMT offset for Lagos (GMT+1)
+        $tzOffset = '+1';
+
         $response = implode("\r\n", [
             "GET OPTION FROM: {$device->serial_number}",
             "Stamp=9999",
@@ -410,14 +405,19 @@ class ADMSController extends Controller
             "ServerVer=2.4.1",
             "PushProtVer=2.4.1",
             "PushOptionsFlag=1",
-            "TimeZone=Etc/GMT-1",
+            "TimeZone={$tzOffset}",
             "ATTLOGStamp=None",
             "OPERLOGStamp=9999",
             "ATTPHOTOStamp=None",
             "",
         ]);
 
-        Log::info('🤝 Handshake sent', ['sn' => $device->serial_number]);
+        Log::info('🤝 Handshake sent', [
+            'sn'       => $device->serial_number,
+            'timezone' => $device->timezone,
+            'offset'   => $tzOffset,
+        ]);
+
         return response($response, 200)->header('Content-Type', 'text/plain');
     }
 
