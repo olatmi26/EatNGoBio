@@ -274,17 +274,19 @@ class ADMSController extends Controller
             $dateTime     = trim($parts[1]);
             $rawPunchType = (int) trim($parts[2]);
 
-            // Determine punch type based on time AND previous punch
-            $punchTime = \Carbon\Carbon::parse($dateTime);
+            try {
+                $punchTime = \Carbon\Carbon::parse($dateTime);
+            } catch (\Exception $e) {
+                continue;
+            }
+
+            // Use alternating sequence to determine IN/OUT
             $punchType = $this->determinePunchTypeBySequence($pin, $punchTime, $rawPunchType);
 
             $verify   = trim($parts[3] ?? '1');
             $workCode = trim($parts[4] ?? '0');
 
             $employee = Employee::where('employee_id', $pin)->first();
-
-            // TEMPORARILY DISABLE VALIDATION - just save everything
-            // The validation is causing "FAILED" status
 
             // Check duplicate
             $exists = AttendanceLog::where('device_sn', $device->serial_number)
@@ -296,6 +298,7 @@ class ADMSController extends Controller
                 continue;
             }
 
+            // Save with SUCCESS status (bypass validation for now)
             $attendanceLog = AttendanceLog::create([
                 'device_id'     => $device->id,
                 'device_sn'     => $device->serial_number,
@@ -306,11 +309,18 @@ class ADMSController extends Controller
                 'verify_type'   => $verify,
                 'work_code'     => $workCode,
                 'raw_line_data' => $line,
-                'status'        => 'success', // Force success
+                'status'        => 'success',
             ]);
 
             event(new AttendanceRecorded($attendanceLog));
             $saved++;
+
+            Log::info('✅ Punch saved', [
+                'pin'    => $pin,
+                'time'   => $punchTime,
+                'type'   => $punchType == 0 ? 'IN' : 'OUT',
+                'status' => 'success',
+            ]);
         }
 
         return $saved;
@@ -328,26 +338,33 @@ class ADMSController extends Controller
 
         $today = $punchTime->copy()->startOfDay();
 
-        // Get today's punches for this employee
+        // Get today's punches for this employee (excluding current)
         $todayPunches = AttendanceLog::where('employee_pin', $pin)
             ->whereDate('punch_time', $today)
+            ->where('status', 'success')
             ->orderBy('punch_time', 'asc')
             ->get();
 
-        // First punch of the day = Check-In
+        // First punch of the day = Check-In (0)
         if ($todayPunches->isEmpty()) {
-            return 0; // Check-In
+            Log::info('First punch of day - IN', ['pin' => $pin, 'time' => $punchTime]);
+            return 0;
         }
 
         // Get the last punch type
         $lastPunch = $todayPunches->last();
 
-        // Alternate: If last was IN, this is OUT. If last was OUT, this is IN
-        if ($lastPunch->punch_type == 0) {
-            return 1; // Check-Out
-        } else {
-            return 0; // Check-In
-        }
+        // Alternate: If last was IN (0), this is OUT (1). If last was OUT (1), this is IN (0)
+        $newType = ($lastPunch->punch_type == 0) ? 1 : 0;
+
+        Log::info('Alternating punch', [
+            'pin'       => $pin,
+            'last_type' => $lastPunch->punch_type == 0 ? 'IN' : 'OUT',
+            'new_type'  => $newType == 0 ? 'IN' : 'OUT',
+            'time'      => $punchTime,
+        ]);
+
+        return $newType;
     }
 
     /**
