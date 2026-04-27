@@ -100,16 +100,19 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // Employees
-    Route::get('/employees', [EmployeeController::class, 'index'])->name('employees.index');
-    Route::post('/employees', [EmployeeController::class, 'store'])->name('employees.store');
-    Route::get('/employees/{id}', [EmployeeController::class, 'show'])->name('employees.show');
-    Route::put('/employees/{id}', [EmployeeController::class, 'update'])->name('employees.update');
-    Route::delete('/employees/{id}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
-    Route::post('/employees/{id}/transfer', [EmployeeController::class, 'transfer'])->name('employees.transfer');
-    Route::post('/employees/{id}/status', [EmployeeController::class, 'updateStatus'])->name('employees.status');
-    Route::post('/employees/{id}/sync', [EmployeeController::class, 'syncToDevices'])->name('employees.sync');
-    Route::get('/employees/{id}/sync-status', [EmployeeController::class, 'syncStatus'])->name('employees.sync-status');
-    Route::post('/employees/bulk-sync', [EmployeeController::class, 'bulkSync'])->name('employees.bulk-sync');
+    Route::prefix('employees')->name('employees.')->group(function () {
+        Route::get('/', [EmployeeController::class, 'index'])->name('index');
+        Route::post('/', [EmployeeController::class, 'store'])->name('store');
+        Route::get('/{employee}', [EmployeeController::class, 'show'])->name('show');
+        Route::put('/{id}', [EmployeeController::class, 'update'])->name('update');
+        Route::delete('/{employee}', [EmployeeController::class, 'destroy'])->name('destroy');
+        Route::post('/{id}/transfer', [EmployeeController::class, 'transfer'])->name('transfer');
+        Route::post('/{id}/status', [EmployeeController::class, 'updateStatus'])->name('status');
+        Route::post('/{id}/sync', [EmployeeController::class, 'syncToDevices'])->name('sync');
+        Route::get('/{id}/sync-status', [EmployeeController::class, 'syncStatus'])->name('sync-status');
+        Route::post('/bulk-sync', [EmployeeController::class, 'bulkSync'])->name('bulk-sync');
+        Route::get('generate-id', [EmployeeController::class, 'generateId'])->name('generate-id');
+    });
 
     // Attendance
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance.index');
@@ -346,3 +349,20 @@ Route::get('/debug/device-data/{sn}', function ($sn) {
         'attendance_count' => \App\Models\AttendanceLog::where('device_sn', $sn)->count(),
     ]);
 })->name('debug.device');
+
+
+
+Route::get('/test-generate-id', function() {
+    $maxNumericId = \App\Models\Employee::whereRaw("employee_id REGEXP '^[0-9]+$'")
+        ->selectRaw('MAX(CAST(employee_id AS UNSIGNED)) as max_id')
+        ->value('max_id');
+    
+    $nextId = $maxNumericId ? intval($maxNumericId) + 1 : 10001;
+    $employeeId = str_pad((string)$nextId, 5, '0', STR_PAD_LEFT);
+    return 'employee_id'. $employeeId;
+    return response()->json([
+        'max_numeric_id' => $maxNumericId,
+        'next_id' => $nextId,
+        'employee_id' => $employeeId,
+    ]);
+});

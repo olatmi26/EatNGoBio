@@ -75,7 +75,6 @@ class DeviceService
             ->orderBy('name')
             ->get()
             ->map(function ($d) {
-                // Ensure $d is an Eloquent Model (App\Models\Device)
                 if (! ($d instanceof Device)) {
                     $d = Device::find($d->id);
                 }

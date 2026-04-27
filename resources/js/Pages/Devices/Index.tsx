@@ -448,11 +448,14 @@ export default function DevicesPage() {
     };
 
     // WebSocket for real-time updates
+    // In devices/Index.tsx, update the WebSocket useEffect:
+
     useEffect(() => {
         const unsubscribe = subscribe(
             "devices",
             ".device.status",
             (data: any) => {
+                // Only update device status, not full page reload
                 setDevices((prev) =>
                     prev.map((d) =>
                         d.id === data.id
@@ -467,6 +470,8 @@ export default function DevicesPage() {
                             : d,
                     ),
                 );
+
+                // Update stats without full refresh
                 setLiveStats((prev) => {
                     const device = devices.find((d) => d.id === data.id);
                     const wasOnline = device?.status === "online";
@@ -478,6 +483,14 @@ export default function DevicesPage() {
                         offline: prev.offline + (isOnline ? -1 : 1),
                     };
                 });
+
+                // Show toast notification for status change
+                showToast(
+                    "info",
+                    "Device Status",
+                    `${device?.name} is now ${data.status}`,
+                    { duration: 3000 },
+                );
             },
         );
         return unsubscribe;
@@ -515,7 +528,6 @@ export default function DevicesPage() {
         return () => clearInterval(interval);
     }, []);
 
-   
     const fetchDevices = useCallback(
         (params: Record<string, any> = {}) => {
             setIsLoading(true);

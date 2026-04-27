@@ -32,7 +32,7 @@ class EmployeeController extends Controller
     {
         $employee = Employee::findOrFail($id);
         return response()->json([
-            'devices' => $this->locationAccess->getEmployeeAccessibleDevices($employee),
+            'devices' => $this->locationAccess->getEmployeeAllowedAreas($employee),
         ]);
     }
 
@@ -122,20 +122,20 @@ class EmployeeController extends Controller
         ]);
     }
 
-    public function show(int $id): Response
+    public function show(Employee $employee): Response
     {
-        $emp = Employee::with(['dept', 'positionModel', 'location', 'shift'])->findOrFail($id);
+        $emp = $employee->load(['dept', 'positionModel', 'location', 'shift']);
 
         [$from, $to] = [Carbon::today()->subDays(29), Carbon::today()];
 
-        $heatmap = $this->getAttendanceHeatmap($emp, $from, $to);
+        $heatmap = $this->getAttendanceHeatmap($employee, $from, $to);
 
         return Inertia::render('Employees/Detail', [
-            'employee'         => $this->formatEmployee($emp),
-            'recentLogs'       => $this->getRecentLogs($emp, $from, $to),
+            'employee'         => $this->formatEmployee($employee),
+            'recentLogs'       => $this->getRecentLogs($employee, $from, $to),
             'heatmap'          => $heatmap,
             'attendanceStats'  => $this->getAttendanceStats($heatmap), // ← real stats
-            'connectedDevices' => $this->getConnectedDevices($emp),
+            'connectedDevices' => $this->getConnectedDevices($employee),
             'departments'      => Department::orderBy('name')->pluck('name')->values()->all(),
             'positions'        => Position::orderBy('name')->pluck('name')->values()->all(),
             'areas'            => Location::orderBy('name')->pluck('name')->values()->all(),
@@ -363,9 +363,9 @@ class EmployeeController extends Controller
         return back()->with('success', 'Employee status updated.');
     }
 
-    public function destroy(int $id): RedirectResponse
+    public function destroy(Employee $employee): RedirectResponse
     {
-        Employee::findOrFail($id)->update(['active' => false, 'employee_status' => 'resigned']);
+        $employee->update(['active' => false, 'employee_status' => 'resigned']);
         return redirect()->route('employees.index')->with('success', 'Employee deactivated.');
     }
 
@@ -535,5 +535,30 @@ class EmployeeController extends Controller
         );
 
         return response()->json($validation);
+    }
+
+    /**
+     * Generate next available numeric employee ID
+     */
+    /**
+     * Generate next available 5-digit numeric employee ID, skipping "CNT" prefixed IDs
+     */
+    public function generateId()
+    {
+        // Find the maximum numeric employee_id (excluding CNT* employee ids)
+        $maxNumericId = Employee::whereRaw("employee_id REGEXP '^[0-9]+$'")
+            ->orderByRaw('LENGTH(employee_id) DESC')
+            ->orderByDesc('employee_id')
+            ->value('employee_id');
+
+        // Next id: increment if exists, otherwise 10001
+        $nextId = $maxNumericId ? (int)$maxNumericId + 1 : 10001;
+        // Always pad as 5 digits (e.g. 00001, 09912, 14230)
+        $nextIdStr = str_pad((string)$nextId, 5, '0', STR_PAD_LEFT);
+
+        return response()->json([
+            'success'     => true,
+            'employee_id' => $nextIdStr,
+        ]);
     }
 }

@@ -97,69 +97,60 @@ class DeviceCommandService
         ],
     ];
 
+    
+
+
     /**
-     * Send a command to a device
-     */
-    public function sendCommand(Device $device, string $command, ?string $params = null): ?DeviceCommand
-    {
-        if (! $device->approved) {
-            Log::warning('⚠️ Cannot send command to unapproved device', [
-                'device'  => $device->serial_number,
-                'command' => $command,
-            ]);
-            return null;
-        }
-
-        if (! isset(self::COMMANDS[$command])) {
-            Log::error('❌ Unknown command', ['command' => $command]);
-            throw new \InvalidArgumentException("Unknown command: {$command}");
-        }
-
-        $commandConfig   = self::COMMANDS[$command];
-        $protocolCommand = $commandConfig['protocol'];
-
-        // Validate template size if applicable
-        if ($command === 'SET_FINGERPRINT' && $params) {
-            if (strlen($params) > $commandConfig['max_template_size']) {
-                throw new \InvalidArgumentException("Fingerprint template too large");
-            }
-        }
-
-        if ($command === 'SET_FACE' && $params) {
-            if (strlen($params) > $commandConfig['max_template_size']) {
-                throw new \InvalidArgumentException("Face template too large");
-            }
-        }
-
-        // Build full command string
-        $fullCommand = $protocolCommand;
-        if ($params) {
-            $fullCommand .= ' ' . $params;
-        }
-
-        // Set expiration time
-        $expiresAt = now()->addSeconds($commandConfig['timeout'] * 2);
-
-        // Create command record
-        $deviceCommand = DeviceCommand::create([
-            'device_id'  => $device->id,
-            'device_sn'  => $device->serial_number,
-            'command'    => $protocolCommand,
-            'params'     => $params,
-            'status'     => 'pending',
-            'expires_at' => $expiresAt,
+ * Send a command to a device - ENSURE proper protocol
+ */
+public function sendCommand(Device $device, string $command, ?string $params = null): ?DeviceCommand
+{
+    if (!$device->approved) {
+        Log::warning('⚠️ Cannot send command to unapproved device', [
+            'device' => $device->serial_number,
+            'command' => $command,
         ]);
-
-        Log::info('📤 Command queued', [
-            'device'       => $device->serial_number,
-            'command'      => $command,
-            'full_command' => $fullCommand,
-            'command_id'   => $deviceCommand->id,
-            'expires_at'   => $expiresAt->toDateTimeString(),
-        ]);
-
-        return $deviceCommand;
+        return null;
     }
+
+    if (!isset(self::COMMANDS[$command])) {
+        Log::error('❌ Unknown command', ['command' => $command]);
+        throw new \InvalidArgumentException("Unknown command: {$command}");
+    }
+
+    $commandConfig = self::COMMANDS[$command];
+    $protocolCommand = $commandConfig['protocol'];
+    
+    // Build the full command string that device expects
+    $fullCommand = $protocolCommand;
+    if ($params) {
+        $fullCommand .= ' ' . $params;
+    }
+    
+    // Set expiration time (2x timeout for safety)
+    $expiresAt = now()->addSeconds($commandConfig['timeout'] * 2);
+    
+    // Create command record - store the PROTOCOL command, not the friendly name
+    $deviceCommand = DeviceCommand::create([
+        'device_id' => $device->id,
+        'device_sn' => $device->serial_number,
+        'command' => $protocolCommand,  // Store the actual protocol command
+        'params' => $params,
+        'status' => 'pending',
+        'expires_at' => $expiresAt,
+    ]);
+    
+    Log::info('📤 Command queued', [
+        'device' => $device->serial_number,
+        'command' => $command,
+        'protocol_command' => $protocolCommand,
+        'full_command' => $fullCommand,
+        'command_id' => $deviceCommand->id,
+        'expires_at' => $expiresAt->toDateTimeString(),
+    ]);
+    
+    return $deviceCommand;
+}
 
     /**
      * Send sync time command

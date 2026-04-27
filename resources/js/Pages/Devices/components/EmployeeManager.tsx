@@ -142,21 +142,29 @@ export default function EmployeeManager({
                         document
                             .querySelector('meta[name="csrf-token"]')
                             ?.getAttribute("content") || "",
+                    Accept: "application/json",
                 },
                 body: JSON.stringify({
                     device_id: selectedDevice,
                     employee_ids: selectedEmployees,
                 }),
             });
+
             const data = await res.json();
             if (data.success) {
                 showToast("success", "Sync Complete", data.message);
                 setSelectedEmployees([]);
-                fetchData(); // refresh counts
+                // Refresh data to update counts
+                setTimeout(() => fetchData(), 1000);
             } else {
-                showToast("error", "Sync Failed", data.message);
+                showToast(
+                    "error",
+                    "Sync Failed",
+                    data.message || "Unknown error occurred",
+                );
             }
-        } catch {
+        } catch (error) {
+            console.error("Sync error:", error);
             showToast("error", "Sync Failed", "Network error occurred");
         } finally {
             setIsSyncing(false);

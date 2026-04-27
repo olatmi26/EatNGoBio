@@ -19,7 +19,7 @@ class EmployeeObserver
     {
         // Auto-sync newly created employee to relevant devices
         if ($employee->active) {
-            $this->syncService->syncEmployeeToDevices($employee);
+            $this->syncService->syncEmployeeToDevice($employee);
         }
     }
 
