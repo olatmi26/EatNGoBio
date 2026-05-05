@@ -557,10 +557,9 @@ export default function Login() {
                             <span className="pill-dot" />
                             Enterprise Biometric Management
                         </div>
-
                         <h1
                             className="hero-title"
-                            style={{ color: d ? "#f1f5f9" : "#0f172a" }}
+                            style={{ color: d ? "#D1E0EF" : "#0f172a" }}
                         >
                             Attendance Intelligence
                             <br />
